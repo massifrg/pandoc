@@ -541,6 +541,7 @@ getAllExtensions f = universalExtensions <> getAll f
     ]
   getAll "opendocument"    = extensionsFromList
     [ Ext_empty_paragraphs
+    , Ext_endnotes
     , Ext_native_numbering
     , Ext_xrefs_name
     , Ext_xrefs_number
