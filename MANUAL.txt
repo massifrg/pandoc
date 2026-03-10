@@ -5986,6 +5986,14 @@ When you convert it with `-t markdown+endnotes` it becomes:
 
     [^EN2]: Second endnote.
 
+This extension is supported by the docx reader: when you convert 
+with `-f docx+endnotes`, the endnotes of the docx file will become
+notes embedded in a span with class "endnote".
+
+It is also supported by the docx writer: when you convert with
+`-t docx+endnotes`, all the notes embedded in a span of class "endnote"
+will be endnotes in the docx file.
+
 ## Citation syntax
 
 ### Extension: `citations` ###
