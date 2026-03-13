@@ -105,6 +105,7 @@ data Extension =
     | Ext_mmd_link_attributes     -- ^ MMD style reference link attributes
     | Ext_mmd_title_block     -- ^ Multimarkdown metadata block
     | Ext_multiline_tables    -- ^ Pandoc-style multiline tables
+    | Ext_multiref_notes      -- ^ Allow notes to be referenced more than once
     | Ext_native_divs             -- ^ Use Div blocks for contents of <div> tags
     | Ext_native_spans            -- ^ Use Span inlines for contents of <span>
     | Ext_native_numbering    -- ^ Use output format's native numbering for figures and tables
@@ -507,6 +508,7 @@ getAllExtensions f = universalExtensions <> getAll f
        , Ext_east_asian_line_breaks
        , Ext_emoji
        , Ext_endnotes
+       , Ext_multiref_notes
        , Ext_tex_math_single_backslash
        , Ext_tex_math_double_backslash
        , Ext_markdown_attribute

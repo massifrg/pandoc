@@ -2060,33 +2060,44 @@ image = try $ do
                    _  -> B.imageWith attr' src
        regLink constructor lab <|> referenceLink constructor (lab, "!" <> raw)
 
-note :: PandocMonad m => MarkdownParser m (F Inlines)
+note :: (PandocMonad m) => MarkdownParser m (F Inlines)
 note = try $ do
   guardEnabled Ext_footnotes
   ref <- noteMarker
-  updateState $ \st -> st{ stateNoteRefs = Set.insert ref (stateNoteRefs st)
-                         , stateNoteNumber = stateNoteNumber st + 1 }
+  updateState $ \st ->
+    st
+      { stateNoteRefs = Set.insert ref (stateNoteRefs st),
+        stateNoteNumber = stateNoteNumber st + 1
+      }
   noteNum <- stateNoteNumber <$> getState
   return $ do
     notes <- asksF stateNotes'
     case M.lookup ref notes of
-        Nothing       -> return $ B.str $ "[^" <> ref <> "]"
-        Just (_pos, contents) -> do
-          st <- askF
-          -- process the note in a context that doesn't resolve
-          -- notes, to avoid infinite looping with notes inside
-          -- notes:
-          let contents' = runF contents st{ stateNotes' = M.empty }
-          let addCitationNoteNum c@Citation{} =
-                c{ citationNoteNum = noteNum }
-          let adjustCite (Cite cs ils) =
-                Cite (map addCitationNoteNum cs) ils
-              adjustCite x = x
-          let opts = stateOptions st
-          return $ if isEnabled Ext_endnotes opts
-                      && readerEndnotesPrefix opts `T.isPrefixOf` ref
-            then B.spanWith ("", ["endnote"], []) $ B.note $ walk adjustCite contents'
-            else B.note $ walk adjustCite contents'
+      Nothing -> return $ B.str $ "[^" <> ref <> "]"
+      Just (_pos, contents) -> do
+        st <- askF
+        -- process the note in a context that doesn't resolve
+        -- notes, to avoid infinite looping with notes inside
+        -- notes:
+        let contents' = runF contents st {stateNotes' = M.empty}
+        let addCitationNoteNum c@Citation {} =
+              c {citationNoteNum = noteNum}
+        let adjustCite (Cite cs ils) =
+              Cite (map addCitationNoteNum cs) ils
+            adjustCite x = x
+        let innerNote = B.note $ walk adjustCite contents'
+        let opts = stateOptions st
+            isEndnote = isEnabled Ext_endnotes opts
+                        && readerEndnotesPrefix opts `T.isPrefixOf` ref
+            isMultirefActive = isEnabled Ext_multiref_notes opts
+        return $ noteWrapper isEndnote isMultirefActive ref innerNote
+
+noteWrapper :: Bool -> Bool -> Text -> Inlines -> Inlines
+noteWrapper False False _ = id
+noteWrapper isEndnote isMultirefActive ref = B.spanWith wrapperAttr
+  where wrapperClasses = ["endnote" | isEndnote]
+        wrapperAttributes = [("noteref", ref) | isMultirefActive]
+        wrapperAttr = ("", wrapperClasses, wrapperAttributes)
 
 inlineNote :: PandocMonad m => MarkdownParser m (F Inlines)
 inlineNote = do
