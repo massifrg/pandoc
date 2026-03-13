@@ -92,6 +92,7 @@ data Extension =
     | Ext_inline_code_attributes  -- ^ Allow attributes on inline code
     | Ext_inline_notes        -- ^ Pandoc-style inline notes
     | Ext_intraword_underscores  -- ^ Treat underscore inside word as literal
+    | Ext_keep_noterefs       -- ^ Store markdown note refs in a Span around the note.
     | Ext_latex_macros        -- ^ Parse LaTeX macro definitions (for math only)
     | Ext_line_blocks         -- ^ RST style line blocks
     | Ext_link_attributes         -- ^ link and image attributes
@@ -509,6 +510,7 @@ getAllExtensions f = universalExtensions <> getAll f
        , Ext_emoji
        , Ext_endnotes
        , Ext_multiref_notes
+       , Ext_keep_noterefs
        , Ext_tex_math_single_backslash
        , Ext_tex_math_double_backslash
        , Ext_markdown_attribute
