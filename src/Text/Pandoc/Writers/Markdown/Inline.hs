@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns        #-}
-{- HLINT ignore "Use tuple-section" -}
 {- |
    Module      : Text.Pandoc.Writers.Markdown.Inline
    Copyright   : Copyright (C) 2006-2024 John MacFarlane
