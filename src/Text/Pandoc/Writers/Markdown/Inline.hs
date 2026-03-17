@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns        #-}
+{- HLINT ignore "Use tuple-section" -}
 {- |
    Module      : Text.Pandoc.Writers.Markdown.Inline
    Copyright   : Copyright (C) 2006-2024 John MacFarlane
@@ -14,7 +15,9 @@ module Text.Pandoc.Writers.Markdown.Inline (
   inlineListToMarkdown,
   linkAttributes,
   attrsToMarkdown,
-  attrsToMarkua
+  attrsToMarkua,
+  getNoteMarker,
+  noteIndex
   ) where
 import Control.Monad (when, liftM2)
 import Control.Monad.Reader
@@ -25,7 +28,7 @@ import Data.Char (isAlphaNum, isDigit)
 import Data.List (find, intersperse)
 import Data.List.NonEmpty (nonEmpty)
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Pandoc.Class.PandocMonad (PandocMonad, report)
@@ -71,7 +74,7 @@ escapeText opts = T.pack . go' . T.unpack
   go [] = []
   go ['\\'] = ['\\','\\']
   go ('-':'-':cs)
-    | isEnabled Ext_smart opts = '\\':'-':go('-':cs)
+    | isEnabled Ext_smart opts = '\\':'-':go ('-':cs)
   go ('.':'.':'.':cs)
     | isEnabled Ext_smart opts = '\\':'.':'.':'.':go cs
   go (c:'_':d:cs)
@@ -335,11 +338,6 @@ avoidBadWraps inListItem = go . toList
   toList (Concat a b) = a : toList b
   toList x = [x]
 
--- check if the Attr of a Span makes the embedded Note an endnote
-isEndnoteSpan :: WriterOptions -> Attr -> Bool
-isEndnoteSpan opts (_, ["endnote"], _) = isEnabled Ext_endnotes opts
-isEndnoteSpan _ _                      = False
-
 attrWithoutEndnoteClass :: WriterOptions -> Attr -> [Inline] -> Attr
 attrWithoutEndnoteClass opts attr ils = case (attr, isEnabled Ext_endnotes opts, ils) of
   ((ident, ["endnote"], attributes), True, [Note _]) -> (ident, [], attributes)
@@ -356,11 +354,20 @@ inlineToMarkdown opts (Span ("",["mark"],[]) ils)
   | isEnabled Ext_mark opts
     = do contents <- inlineListToMarkdown opts ils
          return $ "==" <> contents <> "=="
+inlineToMarkdown opts (Span (_, classes, kvs) [n@(Note _)]) | isEndnote || extendedNotes = do
+  let noteRef = if extendedNotes
+                then lookup "noteref" kvs
+                else Nothing
+  modify (\s -> s{ stInEndnote = isEndnote, stNoteRef = noteRef })
+  mdNote <- inlineToMarkdown opts n
+  modify (\s -> s { stInEndnote = False, stNoteRef = Nothing })
+  return mdNote
+  where
+      isEndnote = isEnabled Ext_endnotes opts && "endnote" `elem` classes
+      extendedNotes = any (`isEnabled` opts) [Ext_multiref_notes, Ext_keep_noterefs]
 inlineToMarkdown opts (Span attrs ils) = do
-  modify (\s -> s {stInEndnote = isEndnoteSpan opts attrs})
   variant <- asks envVariant
   contents <- inlineListToMarkdown opts ils
-  modify (\s -> s {stInEndnote = False})
   return $ case attrs of
              (_,["csl-block"],_) -> (cr <>)
              (_,["csl-left-margin"],_) -> (cr <>)
@@ -736,19 +743,61 @@ inlineToMarkdown opts img@(Image attr alternate (source, tit))
                             literal source <> ")" <> cr
                 _ -> "!" <> linkPart
 inlineToMarkdown opts (Note contents) = do
-  inEndnote <- stInEndnote <$> get
-  if inEndnote
-      then modify (\st -> st{ stEndnotes = contents : stEndnotes st })
-      else modify (\st -> st{ stNotes = contents : stNotes st })
   st <- get
-  let ref = if inEndnote
-      then literal $ writerEndnotesPrefix opts
-                  <> writerIdentifierPrefix opts
-                  <> tshow (stEndnoteNum st + length (stEndnotes st) - 1)
-      else literal $ writerIdentifierPrefix opts <> tshow (stNoteNum st + length (stNotes st) - 1)
+  let inEndnote = stInEndnote st
+      noteref = stNoteRef st
+      knownNote = (`M.lookup` stRefToNote st) =<< noteref
+      isKnownNote = isJust knownNote
+      knownContent = noteContents knownNote
+  when (isKnownNote && knownContent /= Just contents)
+      $ report (DifferentNoteWithSameRef $ "^" <> fromMaybe "(unknown)" noteref)
+  let numFromRef = case knownNote of
+              Just _ ->  noteIndex knownNote
+              Nothing -> Just $ if inEndnote
+                                then (stEndnoteNum st + length (stEndnotes st))
+                                else stNoteNum st + length (stNotes st)
+      newNote = if isKnownNote then Nothing else fmap (\i -> (noteref, contents, i)) numFromRef
+  modify (\s -> s{ stRefToNote = case (noteref, newNote) of
+                       (Just nref, Just newnote) -> M.insert nref newnote (stRefToNote s)
+                       _                         -> stRefToNote s })
+  if inEndnote
+      then modify (\s -> s{ stEndnotes = consIfNote newNote $ stEndnotes s })
+      else modify (\s -> s{ stNotes = consIfNote newNote $ stNotes s })
+  let num = tshow (if inEndnote
+                     then (stEndnoteNum st + length (stEndnotes st))
+                     else stNoteNum st + length (stNotes st))
+  let ref = getNoteMarker opts inEndnote num noteref $ fromMaybe 0 numFromRef
   if isEnabled Ext_footnotes opts
-      then return $ "[^" <> ref <> "]"
-      else return $ "[" <> ref <> "]"
+      then return $ "[^" <> literal ref <> "]"
+      else return $ "[" <> literal ref <> "]"
+  where
+      consIfNote maybeNote notes = maybe notes (:notes) maybeNote
+
+noteContents :: Maybe (Maybe Text, [Block], Int) -> Maybe [Block]
+noteContents maybeNote = case maybeNote of
+  (Just (_, blocks, _)) -> Just blocks
+  Nothing               -> Nothing
+
+noteIndex :: Maybe (Maybe Text, [Block], Int) -> Maybe Int
+noteIndex maybeNote = case maybeNote of
+    Just (_, _, index) -> Just index
+    Nothing            -> Nothing
+
+getNoteMarker :: WriterOptions -> Bool -> Text -> Maybe Text -> Int -> Text
+getNoteMarker opts isEndnote num maybe_ref numOfRef =
+  case (keepNoteRefs, isMultiRefs, maybe_ref) of
+    (False, False, _       ) -> prefix <> num
+    (_,     _    , Nothing ) -> prefix <> num
+    (True,  _    , Just ref) -> prefix <> if isEndnote
+                                          then T.drop (T.length $ writerEndnotesPrefix opts) ref
+                                          else ref
+    (False, True , Just _  ) -> prefix <> tshow numOfRef
+  where
+    keepNoteRefs = isEnabled Ext_keep_noterefs opts
+    isMultiRefs  = isEnabled Ext_multiref_notes opts
+    idprefix     = writerIdentifierPrefix opts
+    prefix       = if isEndnote then writerEndnotesPrefix opts <> idprefix else idprefix
+
 
 makeMathPlainer :: [Inline] -> [Inline]
 makeMathPlainer = walk go

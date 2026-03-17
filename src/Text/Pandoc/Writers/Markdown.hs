@@ -49,9 +49,12 @@ import Text.Pandoc.Writers.HTML (writeHtml5String)
 import Text.Pandoc.Writers.Markdown.Inline (inlineListToMarkdown,
                                             linkAttributes,
                                             attrsToMarkdown,
-                                            attrsToMarkua)
+                                            attrsToMarkua,
+                                            getNoteMarker,
+                                            noteIndex)
 import Text.Pandoc.Writers.Markdown.Table (pipeTable, pandocTable)
 import Text.Pandoc.Writers.Markdown.Types (MarkdownVariant(..),
+                                           Note,
                                            WriterState(..),
                                            WriterEnv(..),
                                            Ref, Refs, MD, evalMD)
@@ -284,27 +287,30 @@ keyToMarkdown opts (label', (src, tit), attr) = do
             <+> linkAttributes opts attr
 
 -- | Return markdown representation of notes.
-notesToMarkdown :: PandocMonad m => WriterOptions -> [[Block]] -> MD m (Doc Text)
+notesToMarkdown :: PandocMonad m => WriterOptions -> [Note] -> MD m (Doc Text)
 notesToMarkdown opts notes = do
   n <- gets stNoteNum
-  notes' <- zipWithM (noteToMarkdown opts "") [n..] notes
+  notes' <- zipWithM (noteToMarkdown opts False) [n..] notes
   modify $ \st -> st { stNoteNum = stNoteNum st + length notes }
   return $ vsep notes'
 
 -- | Return markdown representation of endnotes when Ext_endnotes is enabled.
-endnotesToMarkdown :: PandocMonad m => WriterOptions -> [[Block]] -> MD m (Doc Text)
-endnotesToMarkdown opts notes = do
+endnotesToMarkdown :: PandocMonad m => WriterOptions -> [Note] -> MD m (Doc Text)
+endnotesToMarkdown opts endnotes = do
   n <- gets stEndnoteNum
-  let prefix = writerEndnotesPrefix opts
-  notes' <- zipWithM (noteToMarkdown opts prefix) [n..] notes
-  modify $ \st -> st { stEndnoteNum = stEndnoteNum st + length notes }
-  return $ vsep notes'
+  endnotes' <- zipWithM (noteToMarkdown opts True) [n..] endnotes
+  modify $ \st -> st { stEndnoteNum = stEndnoteNum st + length endnotes }
+  return $ vsep endnotes'
 
 -- | Return markdown representation of a note.
-noteToMarkdown :: PandocMonad m => WriterOptions -> Text -> Int -> [Block] -> MD m (Doc Text)
-noteToMarkdown opts prefix num blocks = do
-  contents  <- blockListToMarkdown opts blocks
-  let num' = literal $ prefix <> writerIdentifierPrefix opts <> tshow num
+noteToMarkdown :: PandocMonad m => WriterOptions -> Bool -> Int -> Note -> MD m (Doc Text)
+noteToMarkdown opts isEndnote num (maybe_ref, blocks, index) = do
+  contents <- blockListToMarkdown opts blocks
+  refToNote <- gets stRefToNote
+  let index' = case maybe_ref of
+        Just ref -> fromMaybe index $ noteIndex $ M.lookup ref refToNote
+        Nothing  -> index
+  let num' = literal $ getNoteMarker opts isEndnote (tshow num) maybe_ref index'
   let marker = if isEnabled Ext_footnotes opts
                   then literal "[^" <> num' <> literal "]:"
                   else literal "[" <> num' <> literal "]"
@@ -346,9 +352,9 @@ notesAndRefs :: PandocMonad m => WriterOptions -> MD m (Doc Text)
 notesAndRefs opts = do
   notes' <- gets stNotes >>= notesToMarkdown opts . reverse
   modify $ \s -> s { stNotes = [] }
-  notes'' <- gets stEndnotes >>= endnotesToMarkdown opts . reverse
+  endnotes' <- gets stEndnotes >>= endnotesToMarkdown opts . reverse
   modify $ \s -> s { stEndnotes = [] }
-  let allNotes = notes' <> (if isEmpty notes' then empty else blankline) <> notes''
+  let allNotes = notes' <> (if isEmpty notes' then empty else blankline) <> endnotes'
   refs' <- gets stRefs >>= refsToMarkdown opts . reverse
   modify $ \s -> s { stPrevRefs = stPrevRefs s ++ stRefs s
                    , stRefs = []}

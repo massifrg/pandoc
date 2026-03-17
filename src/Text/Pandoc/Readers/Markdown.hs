@@ -2067,6 +2067,7 @@ note = try $ do
   updateState $ \st ->
     st
       { stateNoteRefs = Set.insert ref (stateNoteRefs st),
+        stateNoteRefsCount = M.insertWith (+) ref 1 (stateNoteRefsCount st),
         stateNoteNumber = stateNoteNumber st + 1
       }
   noteNum <- stateNoteNumber <$> getState
@@ -2090,14 +2091,17 @@ note = try $ do
             isEndnote = isEnabled Ext_endnotes opts
                         && readerEndnotesPrefix opts `T.isPrefixOf` ref
             isMultirefActive = isEnabled Ext_multiref_notes opts
-        return $ noteWrapper isEndnote isMultirefActive ref innerNote
+            isRefToBeKept = isEnabled Ext_keep_noterefs opts ||
+              (isMultirefActive && 1 < M.findWithDefault 1 ref (stateNoteRefsCount st))
+        return $ noteWrapper isEndnote isRefToBeKept ref innerNote
 
 noteWrapper :: Bool -> Bool -> Text -> Inlines -> Inlines
 noteWrapper False False _ = id
-noteWrapper isEndnote isMultirefActive ref = B.spanWith wrapperAttr
-  where wrapperClasses = ["endnote" | isEndnote]
-        wrapperAttributes = [("noteref", ref) | isMultirefActive]
-        wrapperAttr = ("", wrapperClasses, wrapperAttributes)
+noteWrapper isEndnote isRefToBeKept ref = B.spanWith wrapperAttr
+  where
+    wrapperClasses = ["endnote" | isEndnote]
+    wrapperAttributes = [("noteref", ref) | isRefToBeKept]
+    wrapperAttr = ("", wrapperClasses, wrapperAttributes)
 
 inlineNote :: PandocMonad m => MarkdownParser m (F Inlines)
 inlineNote = do

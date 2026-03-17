@@ -106,6 +106,7 @@ data LogMessage =
   | UnsupportedCodePage Int
   | YamlWarning SourcePos Text
   | UnsupportedPdfStandard Text
+  | DifferentNoteWithSameRef Text
   deriving (Show, Eq, Data, Ord, Typeable, Generic)
 
 instance ToJSON LogMessage where
@@ -294,7 +295,8 @@ instance ToJSON LogMessage where
            ]
       UnsupportedPdfStandard s ->
            ["contents" .= s]
-
+      DifferentNoteWithSameRef s ->
+           ["contents" .= s]
 showPos :: SourcePos -> Text
 showPos pos = Text.pack $ sn ++ "line " ++
      show (sourceLine pos) ++ " column " ++ show (sourceColumn pos)
@@ -429,7 +431,7 @@ showLogMessage msg =
          "Ignoring duplicate attribute " <> attr <> "=" <> tshow val <> "."
        NotUTF8Encoded src ->
          Text.pack src <>
-           " is not UTF-8 encoded: falling back to latin1."
+           " is not UTF-8 encoded: falling back to latin1Note."
        MakePDFInfo description contents ->
          "[makePDF] " <> description <>
           if Text.null contents
@@ -443,6 +445,8 @@ showLogMessage msg =
        YamlWarning pos m -> "YAML warning (" <> showPos pos <> "): " <> m
        UnsupportedPdfStandard s ->
          "PDF standard '" <> s <> "' is not supported by LaTeX and will be ignored."
+       DifferentNoteWithSameRef s ->
+         "Two notes share the same reference \"" <> s <> "\" but have different contents"
 
 messageVerbosity :: LogMessage -> Verbosity
 messageVerbosity msg =
@@ -503,3 +507,4 @@ messageVerbosity msg =
        UnsupportedCodePage{}         -> WARNING
        YamlWarning{}                 -> WARNING
        UnsupportedPdfStandard{}      -> WARNING
+       DifferentNoteWithSameRef{}    -> WARNING

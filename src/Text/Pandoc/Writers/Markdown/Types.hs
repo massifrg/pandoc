@@ -11,6 +11,7 @@ module Text.Pandoc.Writers.Markdown.Types (
   MarkdownVariant(..),
   WriterState(..),
   WriterEnv(..),
+  Note,
   Notes,
   Ref,
   Refs,
@@ -27,7 +28,8 @@ import Text.Pandoc.Parsing (Key)
 import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Definition
 
-type Notes = [[Block]]
+type Note  = (Maybe Text, [Block], Int)
+type Notes = [Note]
 type Ref   = (Text, Target, Attr)
 type Refs  = [Ref]
 
@@ -66,6 +68,8 @@ data WriterState = WriterState { stNotes      :: Notes
                                , stLastIdx    :: Int
                                , stIds        :: Set.Set Text
                                , stNoteNum    :: Int
+                               , stNoteRef    :: Maybe Text
+                               , stRefToNote  :: M.Map Text Note
                                , stInEndnote  :: Bool
                                , stEndnotes   :: Notes
                                , stEndnoteNum :: Int
@@ -79,6 +83,8 @@ instance Default WriterState
                          , stLastIdx = 0
                          , stIds = Set.empty
                          , stNoteNum = 1
+                         , stNoteRef = Nothing
+                         , stRefToNote = M.empty
                          , stInEndnote = False
                          , stEndnotes = []
                          , stEndnoteNum = 1

@@ -53,6 +53,7 @@ data ParserState = ParserState
   , stateNotes           :: NoteTable     -- ^ List of notes (raw bodies)
   , stateNotes'          :: NoteTable'    -- ^ List of notes (parsed bodies)
   , stateNoteRefs        :: Set.Set Text  -- ^ List of note references used
+  , stateNoteRefsCount   :: M.Map Text Int -- ^ List of note references used
   , stateInNote          :: Bool          -- ^ True if parsing note contents
   , stateNoteNumber      :: Int           -- ^ Last note number for citations
   , stateMeta            :: Meta          -- ^ Document metadata
@@ -147,6 +148,7 @@ defaultParserState = ParserState
   , stateNotes           = []
   , stateNotes'          = M.empty
   , stateNoteRefs        = Set.empty
+  , stateNoteRefsCount   = M.empty
   , stateInNote          = False
   , stateNoteNumber      = 0
   , stateMeta            = nullMeta
