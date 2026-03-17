@@ -431,7 +431,7 @@ showLogMessage msg =
          "Ignoring duplicate attribute " <> attr <> "=" <> tshow val <> "."
        NotUTF8Encoded src ->
          Text.pack src <>
-           " is not UTF-8 encoded: falling back to latin1Note."
+           " is not UTF-8 encoded: falling back to latin1."
        MakePDFInfo description contents ->
          "[makePDF] " <> description <>
           if Text.null contents

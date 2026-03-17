@@ -2060,7 +2060,7 @@ image = try $ do
                    _  -> B.imageWith attr' src
        regLink constructor lab <|> referenceLink constructor (lab, "!" <> raw)
 
-note :: (PandocMonad m) => MarkdownParser m (F Inlines)
+note :: PandocMonad m => MarkdownParser m (F Inlines)
 note = try $ do
   guardEnabled Ext_footnotes
   ref <- noteMarker

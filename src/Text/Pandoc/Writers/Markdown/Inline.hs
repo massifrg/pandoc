@@ -74,7 +74,7 @@ escapeText opts = T.pack . go' . T.unpack
   go [] = []
   go ['\\'] = ['\\','\\']
   go ('-':'-':cs)
-    | isEnabled Ext_smart opts = '\\':'-':go ('-':cs)
+    | isEnabled Ext_smart opts = '\\':'-':go('-':cs)
   go ('.':'.':'.':cs)
     | isEnabled Ext_smart opts = '\\':'.':'.':'.':go cs
   go (c:'_':d:cs)
