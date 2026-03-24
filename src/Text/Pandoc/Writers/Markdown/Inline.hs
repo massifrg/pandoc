@@ -16,7 +16,6 @@ module Text.Pandoc.Writers.Markdown.Inline (
   attrsToMarkdown,
   attrsToMarkua,
   getNoteMarker,
-  noteIndex
   ) where
 import Control.Monad (when, liftM2)
 import Control.Monad.Reader
@@ -746,41 +745,26 @@ inlineToMarkdown opts (Note contents) = do
   let inEndnote = stInEndnote st
       noteref = stNoteRef st
       knownNote = (`M.lookup` stRefToNote st) =<< noteref
-      isKnownNote = isJust knownNote
-      knownContent = noteContents knownNote
-  when (isKnownNote && knownContent /= Just contents)
+      knownContent = fmap (\(_, blocks, _) -> blocks) knownNote
+  when (isJust knownNote && knownContent /= Just contents)
       $ report (DifferentNoteWithSameRef $ "^" <> fromMaybe "(unknown)" noteref)
-  let numFromRef = case knownNote of
-              Just _ ->  noteIndex knownNote
-              Nothing -> Just $ if inEndnote
-                                then (stEndnoteNum st + length (stEndnotes st))
-                                else stNoteNum st + length (stNotes st)
-      newNote = if isKnownNote then Nothing else fmap (\i -> (noteref, contents, i)) numFromRef
+  let stNoteNum' = if inEndnote then stEndnoteNum else stNoteNum
+      stNotes'   = if inEndnote then stEndnotes   else stNotes
+      numFromRef = maybe (stNoteNum' st + length (stNotes' st)) (\(_,_,n) -> n) knownNote
+      newNote = maybe (Just (noteref, contents, numFromRef)) (const Nothing) knownNote
+      consIfNote maybeNote notes = maybe notes (:notes) maybeNote
+      stNotes'' = (consIfNote newNote) . stNotes'
   modify (\s -> s{ stRefToNote = case (noteref, newNote) of
                        (Just nref, Just newnote) -> M.insert nref newnote (stRefToNote s)
                        _                         -> stRefToNote s })
   if inEndnote
-      then modify (\s -> s{ stEndnotes = consIfNote newNote $ stEndnotes s })
-      else modify (\s -> s{ stNotes = consIfNote newNote $ stNotes s })
-  let num = tshow (if inEndnote
-                     then (stEndnoteNum st + length (stEndnotes st))
-                     else stNoteNum st + length (stNotes st))
-  let ref = getNoteMarker opts inEndnote num noteref $ fromMaybe 0 numFromRef
+      then modify (\s -> s{ stEndnotes = stNotes'' s })
+      else modify (\s -> s{ stNotes = stNotes'' s })
+  let num = tshow $ stNoteNum' st + length (stNotes' st)
+      ref = getNoteMarker opts inEndnote num noteref numFromRef
   if isEnabled Ext_footnotes opts
       then return $ "[^" <> literal ref <> "]"
       else return $ "[" <> literal ref <> "]"
-  where
-      consIfNote maybeNote notes = maybe notes (:notes) maybeNote
-
-noteContents :: Maybe (Maybe Text, [Block], Int) -> Maybe [Block]
-noteContents maybeNote = case maybeNote of
-  (Just (_, blocks, _)) -> Just blocks
-  Nothing               -> Nothing
-
-noteIndex :: Maybe (Maybe Text, [Block], Int) -> Maybe Int
-noteIndex maybeNote = case maybeNote of
-    Just (_, _, index) -> Just index
-    Nothing            -> Nothing
 
 getNoteMarker :: WriterOptions -> Bool -> Text -> Maybe Text -> Int -> Text
 getNoteMarker opts isEndnote num maybe_ref numOfRef =

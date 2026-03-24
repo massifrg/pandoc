@@ -50,8 +50,7 @@ import Text.Pandoc.Writers.Markdown.Inline (inlineListToMarkdown,
                                             linkAttributes,
                                             attrsToMarkdown,
                                             attrsToMarkua,
-                                            getNoteMarker,
-                                            noteIndex)
+                                            getNoteMarker)
 import Text.Pandoc.Writers.Markdown.Table (pipeTable, pandocTable)
 import Text.Pandoc.Writers.Markdown.Types (MarkdownVariant(..),
                                            Note,
@@ -304,12 +303,12 @@ endnotesToMarkdown opts endnotes = do
 
 -- | Return markdown representation of a note.
 noteToMarkdown :: PandocMonad m => WriterOptions -> Bool -> Int -> Note -> MD m (Doc Text)
-noteToMarkdown opts isEndnote num (maybe_ref, blocks, index) = do
+noteToMarkdown opts isEndnote num (maybe_ref, blocks, note_num) = do
   contents <- blockListToMarkdown opts blocks
   refToNote <- gets stRefToNote
   let index' = case maybe_ref of
-        Just ref -> fromMaybe index $ noteIndex $ M.lookup ref refToNote
-        Nothing  -> index
+        Just ref -> maybe note_num (\(_, _, n) -> n) (M.lookup ref refToNote)
+        Nothing  -> note_num
   let num' = literal $ getNoteMarker opts isEndnote (tshow num) maybe_ref index'
   let marker = if isEnabled Ext_footnotes opts
                   then literal "[^" <> num' <> literal "]:"
