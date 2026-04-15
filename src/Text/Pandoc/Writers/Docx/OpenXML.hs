@@ -914,6 +914,7 @@ inlineToOpenXML' opts (Note bs) = do
   isEndnote <- gets stInEndnote
   notes <- gets $ if isEndnote then stEndnotes else stFootnotes
   notenum <- getUniqueId
+  oldFirstPara <- gets stFirstPara
   footnoteStyle <- rStyleM $ if isEndnote
       then "Endnote Reference"
       else "Footnote Reference"
@@ -933,6 +934,7 @@ inlineToOpenXML' opts (Note bs) = do
                                 , envInNote = True })
               (withParaPropM (pStyleM noteTextStyleName) $
                blocksToOpenXML opts $ insertNoteRef bs)
+  modify $ \s -> s{ stFirstPara = oldFirstPara }
   let noteNodeName = if isEndnote then "w:endnote" else "w:footnote"
   let newnote = mknode noteNodeName [("w:id", notenum)] contents
   modify $ \s -> if isEndnote
