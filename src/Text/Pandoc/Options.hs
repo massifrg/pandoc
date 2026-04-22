@@ -76,6 +76,7 @@ data ReaderOptions = ReaderOptions{
        , readerStripComments         :: Bool -- ^ Strip HTML comments instead of parsing as raw HTML
                                              -- (only implemented in commonmark)
        , readerEndnotesPrefix        :: Text -- ^ Endnotes' prefix when endnotes extension is enabled
+       , readerTypstInputs           :: [(Text, Text)] -- ^ parameters specified using --typst-input
 } deriving (Show, Read, Data, Typeable, Generic)
 
 instance HasSyntaxExtensions ReaderOptions where
@@ -96,6 +97,7 @@ instance Default ReaderOptions
                , readerTrackChanges          = AcceptChanges
                , readerStripComments         = False
                , readerEndnotesPrefix        = defaultEndnotesPrefix
+               , readerTypstInputs           = []
                }
 
 defaultAbbrevs :: Set.Set Text

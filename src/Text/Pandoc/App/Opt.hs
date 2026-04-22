@@ -186,6 +186,7 @@ data Opt = Opt
     , optBibliography          :: [FilePath]  -- ^ Bibliography files
     , optCitationAbbreviations :: Maybe FilePath -- ^ Citation abbreviations
     , optSandbox               :: Bool
+    , optTypstInputs           :: [(Text, Text)] -- ^ List of parameter values for typst
     } deriving (Generic, Show)
 
 instance FromJSON Opt where
@@ -274,6 +275,7 @@ instance FromJSON Opt where
        <*> o .:? "bibliography" .!= optBibliography defaultOpts
        <*> o .:? "citation-abbreviations"
        <*> o .:? "sandbox" .!= optSandbox defaultOpts
+       <*> o .:? "typst-inputs" .!= optTypstInputs defaultOpts
 
 instance ToJSON Opt where
  toJSON = genericToJSON defaultOptions{
@@ -855,6 +857,7 @@ defaultOpts = Opt
     , optBibliography          = []
     , optCitationAbbreviations = Nothing
     , optSandbox               = False
+    , optTypstInputs           = []
     }
 
 yamlToMeta :: Value -> Parser Meta
