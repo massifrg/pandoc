@@ -305,6 +305,7 @@ server = convertBytes
                         , readerTrackChanges = optTrackChanges opts
                         , readerStripComments = optStripComments opts
                         , readerEndnotesPrefix = optEndnotesPrefix opts
+                        , readerTypstInputs = optTypstInputs opts
                         }
 
     let writeropts = WriterOptions
