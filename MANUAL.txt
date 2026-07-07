@@ -422,11 +422,12 @@ header when requesting a document from a URL:
     and output files, can be set using a defaults file.  The file will
     be searched for first in the working directory, and then in
     the `defaults` subdirectory of the user data directory
-    (see `--data-dir`).  The `.yaml` extension will be added if
-    *FILE* lacs an extension. See the section [Defaults files]
-    for more information on the file format. Settings from the
-    defaults file may be overridden or extended by subsequent
-    options on the command line.
+    (see `--data-dir`). If *FILE* lacks an extension, pandoc will
+    also try adding the `.yaml` extension if *FILE* is not found.
+    See the section [Defaults files] for more information on the
+    file format. Settings from the defaults file may be
+    overridden or extended by subsequent options on the command
+    line.
 
 `--bash-completion`
 
@@ -922,6 +923,12 @@ header when requesting a document from a URL:
     contents will appear at the end of the document. If you would
     prefer it to be at the beginning of the document, before the
     title, you can use `--pdf-engine=pdfroff`.
+
+    Because the entries in a table of contents need heading
+    identifiers to link to, this option forces the
+    [`auto_identifiers`](#extension-auto_identifiers) extension on
+    for the input format, even when it is off by default (as it is
+    for `typst`).
 
 `--toc-depth=`*NUMBER*
 
@@ -3683,7 +3690,7 @@ automatically assigned a unique identifier based on the heading text.
 This extension can be enabled/disabled for the following formats:
 
 input formats
-:  `markdown`, `latex`, `rst`, `mediawiki`, `textile`, `man`
+:  `markdown`, `latex`, `rst`, `mediawiki`, `textile`, `man`, `typst`
 
 output formats
 :  `markdown`, `muse`
@@ -4555,6 +4562,10 @@ ordered list marker in place of a numeral:
 
 Note:  the '`#`' ordered list marker doesn't work with `commonmark`.
 
+As with `commonmark`, ordered sublists must start with `1` or the
+equivalent (e.g., `i` or `a`). This helps avoid unintentional
+lists caused by things like parenthesized dates.
+
 ### Extension: `startnum` ###
 
 Pandoc also pays attention to the type of list marker used, and to the
@@ -4617,7 +4628,7 @@ or two spaces.
 
 A term may have multiple definitions, and each definition may
 consist of one or more indented block elements (paragraph, code block,
-list, etc.). The blocks in the definition shoud be indented to the column
+list, etc.). The blocks in the definition should be indented to the column
 of the first non-space content after the `:` or `~` marker, or
 (if the `four_space_rule` extension is enabled) four spaces or
 one tab stop. As with other Markdown lists, you can "lazily" omit
@@ -4749,9 +4760,12 @@ lines that follow as a YAML metadata block or a table.
 
 ## Tables
 
-Four kinds of tables may be used. The first three kinds presuppose the use of
-a fixed-width font, such as Courier. The fourth kind can be used with
-proportionally spaced fonts, as it does not require lining up columns.
+Four kinds of tables may be used. The first three kinds (simple,
+multiline, and grid) require lining up columns and thus
+presuppose the use of a fixed-width font, such as Courier.
+The fourth kind (pipe tables) can be used with
+proportionally spaced fonts, as it does not require lining up
+columns.
 
 ### Extension: `table_captions` ###
 
@@ -7247,7 +7261,9 @@ Here is an example of a YAML metadata block with EPUB metadata:
       text: Sarah Jones
     identifier:
     - scheme: DOI
-      text: doi:10.234234.234/33
+      text: 'urn:doi:10.234234.234/33'
+    - scheme: ISBN-13
+      text: 'urn:isbn:9780000000000'
     publisher:  My Press
     rights: © 2007 John Smith, CC BY-NC
     ibooks:
@@ -7257,25 +7273,30 @@ Here is an example of a YAML metadata block with EPUB metadata:
 The following fields are recognized:
 
 `identifier`
-  ~ Either a string value or an object with fields `text` and
-    `scheme`.  Valid values for `scheme` are `ISBN-10`,
-    `GTIN-13`, `UPC`, `ISMN-10`, `DOI`, `LCCN`, `GTIN-14`,
-    `ISBN-13`, `Legal deposit number`, `URN`, `OCLC number`,
-    `Co-publisher’s ISBN-13`, `ISMN-13`, `ISBN-A`, `JP e-code`,
-    `OLCC number`, `JP Magazine ID`, `UPC-12+5`, `BNF Control number`,
-    `ISSN-13`, `ARK`, `Digital file internal version number`.
+  ~ Either a string value, or an object with fields `text` and
+    `scheme` (optional), or a list of such objects. Valid values for
+    `scheme` are `ISBN-10`, `GTIN-13`, `UPC`, `ISMN-10`, `DOI`,
+    `LCCN`, `GTIN-14`, `ISBN-13`, `Legal deposit number`, `URN`,
+    `OCLC number`, `Co-publisher’s ISBN-13`, `ISMN-13`, `ISBN-A`,
+    `JP e-code`, `OLCC number`, `JP Magazine ID`, `UPC-12+5`,
+    `BNF Control number`, `ISSN-13`, `ARK`, `Digital file
+    internal version number`. In the `text` field, it is
+    advisable to specify a URN as in the examples above. Note
+    that quotes are needed around a YAML field containing a colon.
 
 `title`
-  ~ Either a string value, or an object with fields `file-as` and
-    `type`, or a list of such objects.  Valid values for `type` are
-    `main`, `subtitle`, `short`, `collection`, `edition`, `extended`.
+  ~ Either a string value, or an object with fields `text`,
+    `file-as` (optional) and `type` (optional), or a list of such
+    objects. Valid values for `type` are `main`, `subtitle`,
+    `short`, `collection`, `edition`, `extended`.
 
 `creator`
-  ~ Either a string value, or an object with fields `role`, `file-as`,
-    and `text`, or a list of such objects.  Valid values for `role` are
-    [MARC relators], but
-    pandoc will attempt to translate the human-readable versions
-    (like "author" and "editor") to the appropriate marc relators.
+  ~ Either a string value, or an object with fields `text`,
+    `role` (optional), and `file-as` (optional), or a list of
+    such objects. Valid values for `role` are [MARC relators],
+    but pandoc will attempt to translate the human-readable
+    versions (like "author" and "editor") to the appropriate marc
+    relators.
 
 `contributor`
   ~ Same format as `creator`.
@@ -7289,12 +7310,14 @@ The following fields are recognized:
     language if nothing is specified.
 
 `subject`
-  ~ Either a string value, or an object with fields `text`, `authority`,
-    and `term`, or a list of such objects. Valid values for `authority`
-    are either a [reserved authority value] (currently `AAT`, `BIC`,
-    `BISAC`, `CLC`, `DDC`, `CLIL`, `EuroVoc`, `MEDTOP`, `LCSH`, `NDC`,
-    `Thema`, `UDC`, and `WGS`) or an absolute IRI identifying a custom
-    scheme. Valid values for `term` are defined by the scheme.
+  ~ Either a string value, or an object with fields `text`,
+    `authority` (optional), and `term` (optional), or a list of
+    such objects. Valid values for `authority` are either a
+    [reserved authority value] (currently `AAT`, `BIC`, `BISAC`,
+    `CLC`, `DDC`, `CLIL`, `EuroVoc`, `MEDTOP`, `LCSH`, `NDC`,
+    `Thema`, `UDC`, and `WGS`) or an absolute IRI identifying a
+    custom scheme. Valid values for `term` are defined by the
+    scheme.
 
 `description`
   ~ A string value.
