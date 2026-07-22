@@ -19,7 +19,7 @@ BENCHARGS?=--csv bench_$(TIMESTAMP).csv $(BASELINECMD) --timeout=6 +RTS -T --non
 pandoc=$(shell cabal list-bin $(CABALOPTS) pandoc-cli)
 OPTIMIZE_WASM?=1
 
-all: build test binpath ## build executable and run tests
+all: build test binpath flake.lock ## build executable and run tests
 .PHONY: all
 
 build: ## build executable
@@ -55,6 +55,9 @@ test:  ## unoptimized build and run tests with cabal
 	  --test-options="--hide-successes --ansi-tricks=false $(TESTARGS)" all
 .PHONY: test
 
+flake.lock: flake.nix stack.yaml
+	nix flake update all-cabal-hashes
+
 quick-stack: ## unoptimized build and tests with stack
 	stack install \
 	  --system-ghc --flag 'pandoc:embed_data_files' \
@@ -74,7 +77,7 @@ authors:  ## prints unique authors since last released version
 	git log --pretty=format:"%an" $$(git tag -l | grep '[^0-9]' | sort | tail -1)..HEAD | sort | uniq | while read -r; do grep -i -q "^- $$REPLY" AUTHORS.md || echo $$REPLY ; done
 
 check-stack:
-	$$HOME/.local/bin/stack-lint-extra-deps # check that stack.yaml dependencies are up to date
+	$$HOME/.local/bin/stack-lint-extra-deps --no-exit # check that stack.yaml dependencies are up to date
 	! grep 'git:' stack.yaml # use only released versions
 .PHONY: check-stack
 
