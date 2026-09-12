@@ -713,14 +713,6 @@ read_note = matchingElement NsText "note" $ do
   noteClass <- findAttrWithDefault NsText "note-class" ""
   whichnote isEndnote noteClass <$> matchContent' [read_note_body]
 
-
--- read_note        :: InlineMatcher
--- read_note         = matchingElement NsText "note"
---                     $ whichnote readingEndnotes noteClass
---                     <$> matchContent' [ read_note_body ]
---                   where
---                     noteClass = findAttrWithDefault NsText "note-class" ""
-
 read_note_body   :: BlockMatcher
 read_note_body    = matchingElement NsText "note-body"
                     $ matchSmushedChildBlocks' [ read_paragraph ]
