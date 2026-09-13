@@ -327,9 +327,13 @@ writeOpenXML opts (Pandoc meta blocks) = do
 
 -- | Convert a list of Pandoc blocks to OpenXML.
 blocksToOpenXML :: (PandocMonad m) => WriterOptions -> [Block] -> WS m [Content]
-blocksToOpenXML opts =
-  fmap concat . mapM (blockToOpenXML opts)
-  . separateTables . filter (not . isForeignRawBlock)
+blocksToOpenXML opts bs = do
+  oldFirstPara <- gets stFirstPara
+  modify $ \st -> st{ stFirstPara = True }
+  result <- concat <$> mapM (blockToOpenXML opts)
+            (separateTables (filter (not . isForeignRawBlock) bs))
+  modify $ \st -> st{ stFirstPara = oldFirstPara }
+  pure result
 
 isForeignRawBlock :: Block -> Bool
 isForeignRawBlock (RawBlock format _) = format /= "openxml"
@@ -448,16 +452,16 @@ blockToOpenXML' opts (Para lst)
       let displayMathPara = case lst of
                                  [x] -> isDisplayMath x
                                  _   -> False
-      paraProps <- getParaProps displayMathPara
       bodyTextStyle <- pStyleM $ if isFirstPara
                        then "First Paragraph"
                        else "Body Text"
-      let paraProps' = case paraProps of
-            []               -> [mknode "w:pPr" [] [bodyTextStyle]]
-            ps               -> ps
+      paraProps <- local (\env -> env{ envParaProperties =
+                                        envParaProperties env <>
+                                        EnvProps (Just bodyTextStyle) [] })
+                      (getParaProps displayMathPara)
       modify $ \s -> s { stFirstPara = False }
       contents <- inlinesToOpenXML opts lst
-      return [Elem $ mknode "w:p" [] (map Elem paraProps' ++ contents)]
+      return [Elem $ mknode "w:p" [] (map Elem paraProps ++ contents)]
 blockToOpenXML' opts (LineBlock lns) = blockToOpenXML opts $ linesToPara lns
 blockToOpenXML' _ b@(RawBlock format str)
   | format == Format "openxml" = return [
