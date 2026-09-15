@@ -36,6 +36,7 @@ import Control.Monad (guard, mplus, mzero, unless, when, void)
 import Control.Monad.Trans (lift)
 import Data.Char (isAlphaNum, isSpace)
 import qualified Data.Map as M
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -409,7 +410,7 @@ footnote = try $ do
 inlineNote :: PandocMonad m => OrgParser m (F Inlines)
 inlineNote = try $ do
   string "[fn:"
-  ref <- manyChar alphaNum
+  ref <- manyChar (alphaNum <|> oneOf "-_")
   char ':'
   note <- fmap B.para . trimInlinesF . mconcat <$> many1Till inline (char ']')
   unless (T.null ref) $
@@ -501,7 +502,7 @@ linkToInlinesF linkStr =
 internalLink :: Text -> Inlines -> F Inlines
 internalLink link title = do
   ids <- asksF orgStateAnchorIds
-  if link `elem` ids
+  if link `Set.member` ids
     then return $ B.link ("#" <> link) "" title
     else let attr' = ("", ["spurious-link"] , [("target", link)])
          in return $ B.spanWith attr' (B.emph title)
@@ -801,17 +802,22 @@ notAfterForbiddenBorderChar = do
 
 -- | Read a sub- or superscript expression
 subOrSuperExpr :: PandocMonad m => OrgParser m (F Inlines)
-subOrSuperExpr = try $
-  simpleSubOrSuperText <|>
-  (choice [ charsInBalanced '{' '}' (T.singleton <$> noneOf "\n\r")
-          , enclosing ('(', ')') <$> charsInBalanced '(' ')' (T.singleton <$> noneOf "\n\r")
-          ] >>= parseFromString (mconcat <$> many inline))
- where enclosing (left, right) s = T.cons left $ T.snoc s right
+subOrSuperExpr = try $ do
+  subSupOption <- getExportSetting exportSubSuperscripts
+  case subSupOption of
+    SubSupNone   -> mzero
+    SubSupBraced -> bracedText
+    SubSupAll    -> simpleSubOrSuperText <|> bracedText <|> parenText
+ where
+   bracedText = charsInBalanced '{' '}' (T.singleton <$> noneOf "\n\r")
+                >>= parseFromString (mconcat <$> many inline)
+   parenText = (enclosing ('(', ')') <$>
+                charsInBalanced '(' ')' (T.singleton <$> noneOf "\n\r"))
+               >>= parseFromString (mconcat <$> many inline)
+   enclosing (left, right) s = T.cons left $ T.snoc s right
 
 simpleSubOrSuperText :: PandocMonad m => OrgParser m (F Inlines)
-simpleSubOrSuperText = try $ do
-  state <- getState
-  guard . exportSubSuperscripts . orgStateExportSettings $ state
+simpleSubOrSuperText = try $
   return . B.str <$>
     choice [ textStr "*"
            , mappend <$> option "" (T.singleton <$> oneOf "+-")
@@ -922,7 +928,7 @@ specialStrings = do
   guard =<< getExportSetting exportSpecialStrings
   choice [orgDash, orgEllipses, shyHyphen]
   where
-    shyHyphen   = pure <$> (B.str "\173" <$ string "\\-") <* updatePositions '-'
+    shyHyphen   = pure <$> (B.str "\173" <$ try (string "\\-")) <* updatePositions '-'
     orgDash     = pure <$> dash <* updatePositions '-'
     orgEllipses = pure <$> ellipses <* updatePositions '.'
 

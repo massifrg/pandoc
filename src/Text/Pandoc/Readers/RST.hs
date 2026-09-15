@@ -21,7 +21,7 @@ import Control.Monad.Identity (Identity (..))
 import Data.Char (isHexDigit, isSpace, toUpper, isAlphaNum, generalCategory,
                   GeneralCategory(OpenPunctuation, InitialQuote, FinalQuote,
                                   DashPunctuation, OtherSymbol))
-import Data.List (deleteFirstsBy, elemIndex, partition, sort, transpose)
+import Data.List (elemIndex, partition, sort, transpose)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, maybeToList, isJust, isNothing, catMaybes)
 import Data.Sequence (ViewR (..), viewr)
@@ -75,8 +75,35 @@ underlineChars :: [Char]
 underlineChars = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 
 -- treat these as potentially non-text when parsing inline:
-specialChars :: [Char]
-specialChars = "\\`|*_<>$:/[]{}()-.\"'\8216\8217\8220\8221"
+-- (equivalent to the character class "\\`|*_<>$:/[]{}()-.\"'\8216\8217\8220\8221")
+isSpecialChar :: Char -> Bool
+isSpecialChar c =
+  case c of
+    '\\' -> True
+    '`'  -> True
+    '|'  -> True
+    '*'  -> True
+    '_'  -> True
+    '<'  -> True
+    '>'  -> True
+    '$'  -> True
+    ':'  -> True
+    '/'  -> True
+    '['  -> True
+    ']'  -> True
+    '{'  -> True
+    '}'  -> True
+    '('  -> True
+    ')'  -> True
+    '-'  -> True
+    '.'  -> True
+    '"'  -> True
+    '\'' -> True
+    '\8216' -> True
+    '\8217' -> True
+    '\8220' -> True
+    '\8221' -> True
+    _    -> False
 
 --
 -- parsing documents
@@ -165,9 +192,15 @@ parseRST = do
   let (blocks', meta') = if standalone
                             then titleTransform (blocks, meta)
                             else (blocks, meta)
-  let reversedNotes = stateNotes state
-  updateState $ \s -> s { stateNotes = reverse reversedNotes }
-  doc <- walkM resolveReferences =<<
+  let notes = reverse $ stateNotes state
+  -- Named notes are never removed, so we can look them up in a Map;
+  -- auto-numbered notes are consumed in order of occurrence, so we
+  -- keep them in a list (in stateNotes):
+  let isAutoNote (r, _) = r == "*" || r == "#"
+  let namedNotes = M.fromList $ reverse $ filter (not . isAutoNote) notes
+        -- reverse, so that the first occurrence of a label wins
+  updateState $ \s -> s { stateNotes = filter isAutoNote notes }
+  doc <- walkM (resolveReferences namedNotes) =<<
          walkM resolveBlockSubstitutions
          (Pandoc meta' (blocks' ++ refBlock))
   reportLogMessages
@@ -189,22 +222,27 @@ resolveBlockSubstitutions (Para [Link _attr ils (s,_)])
                    bls -> return $ Div nullAttr bls
 resolveBlockSubstitutions x = return x
 
-resolveReferences :: PandocMonad m => Inline -> RSTParser m Inline
-resolveReferences = resolveReferences' Set.empty
+resolveReferences :: PandocMonad m
+                  => M.Map Text Text  -- ^ named notes
+                  -> Inline -> RSTParser m Inline
+resolveReferences namedNotes = resolveReferences' namedNotes Set.empty
 
-resolveReferences' :: PandocMonad m => Set.Set Key -> Inline -> RSTParser m Inline
-resolveReferences' seen x@(Link _ ils (s,_))
+resolveReferences' :: PandocMonad m
+                   => M.Map Text Text -> Set.Set Key -> Inline
+                   -> RSTParser m Inline
+resolveReferences' namedNotes seen x@(Link _ ils (s,_))
   | Just ref <- T.stripPrefix "##REF##" s = do
       let isAnonKey (Key (T.uncons -> Just ('_',_))) = True
           isAnonKey _                                = False
       state <- getState
       let keyTable = stateKeys state
-      let anonKeys = sort $ filter isAnonKey $ M.keys keyTable
       key <-  if ref == "_" -- anonymous key
                 then
-                  case anonKeys of
-                    []    -> mzero -- TODO log?
-                    (k:_) -> return k
+                  -- anonymous keys are named _0000, _0001, ... so the
+                  -- next one to use is the smallest key >= "_":
+                  case M.lookupGE (Key "_") keyTable of
+                    Just (k, _) | isAnonKey k -> return k
+                    _                         -> mzero -- TODO log?
                 else return $ toKey ref
       if key `Set.member` seen
          then do
@@ -216,27 +254,31 @@ resolveReferences' seen x@(Link _ ils (s,_))
            ((src,tit), attr) <- lookupKey [] key
            when (isAnonKey key) $ updateState $ \st ->
                                    st{ stateKeys = M.delete key keyTable }
-           resolveReferences' (Set.insert key seen) (Link attr ils (src, tit))
+           resolveReferences' namedNotes (Set.insert key seen)
+             (Link attr ils (src, tit))
   | Just ref <- T.stripPrefix "##NOTE##" s = do
       state <- getState
-      let notes = stateNotes state
-      case lookup ref notes of
+      let autoNotes = stateNotes state
+      let mbnote = if ref == "*" || ref == "#" -- auto-numbered
+                      -- consume the note, so the next auto-numbered
+                      -- note doesn't get the same contents:
+                      then case break ((== ref) . fst) autoNotes of
+                             (xs, (_, raw) : ys) -> Just (raw, xs ++ ys)
+                             _                   -> Nothing
+                      else (\raw -> (raw, autoNotes)) <$>
+                             M.lookup ref namedNotes
+      case mbnote of
         Nothing   -> do
           pos <- getPosition
           logMessage $ ReferenceNotFound ref pos
           return x
-        Just raw  -> do
+        Just (raw, newnotes) -> do
           -- We temporarily empty the note list while parsing the note,
           -- so that we don't get infinite loops with notes inside notes...
           -- Note references inside other notes are allowed in reST, but
           -- not yet in this implementation.
           updateState $ \st -> st{ stateNotes = [] }
           contents <- parseFromString' parseBlocks raw
-          let newnotes = if ref == "*" || ref == "#" -- auto-numbered
-                            -- delete the note so the next auto-numbered note
-                            -- doesn't get the same contents:
-                            then deleteFirstsBy (==) notes [(ref,raw)]
-                            else notes
           updateState $ \st -> st{ stateNotes = newnotes }
           return $ Note (B.toList contents)
   | Just ref <- T.stripPrefix "##SUBST##" s = do
@@ -257,9 +299,9 @@ resolveReferences' seen x@(Link _ ils (s,_))
                    [Para [t]] -> return t
                    [Para xs] -> return $ Span nullAttr xs
                    bls -> return $ Span nullAttr $ blocksToInlines bls
-                 resolveReferences' (Set.insert key seen) resolved
+                 resolveReferences' namedNotes (Set.insert key seen) resolved
   | otherwise = return x
-resolveReferences' _ x = return x
+resolveReferences' _ _ x = return x
 
 parseCitation :: PandocMonad m
               => (Text, Text) -> RSTParser m (Inlines, [Blocks])
@@ -475,7 +517,14 @@ singleHeader = do
 singleHeader' :: PandocMonad m => RSTParser m (Inlines, Char)
 singleHeader' = try $ do
   notFollowedBy' whitespace
-  lookAhead $ anyLine >> oneOf underlineChars
+  -- check that the next line is a full underline before committing
+  -- to parsing the header text (otherwise we'd parse the first line
+  -- of many paragraphs twice):
+  lookAhead $ do
+    anyLine
+    c <- oneOf underlineChars
+    skipMany (char c)
+    blankline
   txt <- trimInlines . mconcat <$> many1 (notFollowedBy blankline >> inline)
   pos <- getPosition
   let len = sourceColumn pos - 1
@@ -1046,22 +1095,15 @@ csvTableDirective top fields rawcsv = do
                  _ -> replicate numOfCols ColWidthDefault
          let toRow = Row nullAttr . map B.simpleCell
              toHeaderRow l = [toRow l | not (null l)]
-         return $ B.table (B.simpleCaption $ B.plain title)
+         return $ compactifyTable
+                $ B.table (B.simpleCaption $ B.plain title)
                           (zip (replicate numOfCols AlignDefault) widths)
                           (TableHead nullAttr $ toHeaderRow headerRow)
                           [TableBody nullAttr 0 [] $ map toRow bodyRows]
                           (TableFoot nullAttr [])
 
-singleParaToPlain :: Blocks -> Blocks
-singleParaToPlain bs =
-  case B.toList bs of
-    [Para ils] -> B.fromList [Plain ils]
-    _          -> bs
-
 parseCell :: PandocMonad m => Text -> RSTParser m Blocks
-parseCell t = singleParaToPlain
-   <$> parseFromString' parseBlocks (trim t <> "\n\n")
-
+parseCell t = parseFromString' parseBlocks (trim t <> "\n\n")
 
 -- TODO:
 --  - Only supports :format: fields with a single format for :raw: roles,
@@ -1516,7 +1558,8 @@ gridTable = runIdentity <$>
   gridTableWith (Identity <$> parseBlocks)
 
 table :: PandocMonad m => RSTParser m Blocks
-table = gridTable <|> simpleTable False <|> simpleTable True <?> "table"
+table = compactifyTable <$>
+  (gridTable <|> simpleTable False <|> simpleTable True <?> "table")
 
 --
 -- inline
@@ -1561,7 +1604,7 @@ canPrecedeOpener c =
 
 symbol :: Monad m => RSTParser m Inlines
 symbol = do
-  c <- oneOf specialChars
+  c <- satisfy isSpecialChar
   unless (canPrecedeOpener c) updateLastStrPos
   return $ B.str $ T.singleton c
 
@@ -1722,10 +1765,11 @@ whitespace = B.space <$ skipMany1 spaceChar <?> "whitespace"
 
 str :: Monad m => RSTParser m Inlines
 str = do
-  let strChar = noneOf ("\t\n " ++ specialChars)
-  result <- many1Char strChar
+  result <- many1Char (satisfy isStrChar)
   updateLastStrPos
   return $ B.str result
+ where
+  isStrChar c = c /= '\t' && c /= '\n' && c /= ' ' && not (isSpecialChar c)
 
 -- an endline character that can be treated as a space, not a structural break
 endline :: Monad m => RSTParser m Inlines
@@ -1743,7 +1787,28 @@ endline = try $ do
 --
 
 link :: PandocMonad m => RSTParser m Inlines
-link = choice [explicitLink, referenceLink, autoLink]  <?> "link"
+link = do
+  linkPossible
+  choice [explicitLink, referenceLink, autoLink]  <?> "link"
+
+-- Fail fast if no link parser can succeed here: each of them
+-- requires one of the characters @`[_:\@@ before the next
+-- whitespace ('`' for explicit links and quoted reference names,
+-- '[' for citation names, '_' for reference links, ':' after the
+-- scheme of a URI, '@' in an email address).  Checking this on the
+-- raw input is much cheaper than running each link parser over the
+-- next word only to have it fail.
+linkPossible :: Monad m => RSTParser m ()
+linkPossible = do
+  Sources inps <- getInput
+  case inps of
+    [] -> mzero
+    (_, t) : rest -> do
+      let (w, t') = T.break (\c -> c == ' ' || c == '\t' || c == '\n') t
+      guard $ (T.null t' && not (null rest))
+                -- word may continue in next chunk: inconclusive
+            || T.any (\c -> c == '`' || c == '[' || c == '_' ||
+                            c == ':' || c == '@') w
 
 explicitLink :: PandocMonad m => RSTParser m Inlines
 explicitLink = try $ do

@@ -31,7 +31,7 @@ import Text.Pandoc.Builder (Blocks, Inlines, Many(..))
 import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
-import Text.Pandoc.Shared (compactify, compactifyDL, safeRead)
+import Text.Pandoc.Shared (compactify, compactifyDL, safeRead, compactifyTable)
 
 import Control.Monad (foldM, guard, mzero, void)
 import Data.Bifunctor (bimap)
@@ -701,8 +701,8 @@ table = try $ do
                                 pure $ B.simpleCaption . B.plain $ ils'
                     let attr = (fromMaybe mempty identMb, [],
                                  blockAttrKeyValues blockAttrs)
-                    pure $ B.tableWith attr capt cs th tb tf
-                  _ -> tbl   -- should not happen
+                    pure $ compactifyTable $ B.tableWith attr capt cs th tb tf
+                  _ -> compactifyTable <$> tbl   -- should not happen
               else mempty
 
 -- | A normal org table
@@ -718,7 +718,8 @@ orgToPandocTable (OrgTable colProps heads lns) =
   let totalWidth = if any (isJust . columnRelWidth) colProps
                    then Just . sum $ map (fromMaybe 1 . columnRelWidth) colProps
                    else Nothing
-  in B.tableWith nullAttr (Caption Nothing mempty)
+  in compactifyTable $
+     B.tableWith nullAttr (Caption Nothing mempty)
                  (map (convertColProp totalWidth) colProps)
                  (TableHead nullAttr $ toHeaderRow heads)
                  [TableBody nullAttr 0 [] $ map toRow lns]
@@ -782,8 +783,10 @@ endOfCell = try $ char '|' <|> lookAhead newline
 
 rowsToTable :: [OrgTableRow]
             -> F OrgTable
-rowsToTable = foldM rowToContent emptyTable
+rowsToTable = fmap unreverseRows . foldM rowToContent emptyTable
  where emptyTable = OrgTable mempty mempty mempty
+       -- Rows are accumulated in reverse order (see 'appendToBody').
+       unreverseRows tbl = tbl{ orgTableRows = reverse (orgTableRows tbl) }
 
 normalizeTable :: OrgTable -> OrgTable
 normalizeTable (OrgTable colProps heads rows) =
@@ -821,10 +824,9 @@ rowToContent tbl row =
    appendToBody :: F [Blocks] -> F OrgTable
    appendToBody frow = do
      newRow <- frow
-     let oldRows = orgTableRows tbl
-     -- NOTE: This is an inefficient O(n) operation.  This should be changed
-     -- if performance ever becomes a problem.
-     return tbl{ orgTableRows = oldRows ++ [newRow] }
+     -- Rows are prepended to avoid quadratic behavior on long tables;
+     -- the final list is reversed in 'rowsToTable'.
+     return tbl{ orgTableRows = newRow : orgTableRows tbl }
 
 
 --
