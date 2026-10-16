@@ -551,6 +551,7 @@ read_span         = matchingElement NsText "span"
                                    , read_reference_start
                                    , read_bookmark_ref
                                    , read_reference_ref
+                                   , read_chapter
                                    ] read_plain_text
 
 --
@@ -582,6 +583,7 @@ matchParagraphContent = matchContent [ read_span
                                      , read_reference_start
                                      , read_bookmark_ref
                                      , read_reference_ref
+                                     , read_chapter
                                      , read_frame
                                      , read_text_seq
                                      ] read_plain_text
@@ -607,6 +609,7 @@ read_header       = matchingElement NsText "h" $ do
                            , read_reference_start
                            , read_bookmark_ref
                            , read_reference_ref
+                           , read_chapter
                            , read_frame
                            ] read_plain_text
   anchor   <- getHeaderAnchor children
@@ -675,6 +678,7 @@ read_link         = matchingElement NsText "a"
                                        , read_reference_start
                                        , read_bookmark_ref
                                        , read_reference_ref
+                                       , read_chapter
                                        ] read_plain_text
 
 fixRelativeLink :: T.Text -> T.Text
@@ -888,8 +892,8 @@ read_frame_mathml obj = do
          -- note that pandoc's own odt writer uses a trailing slash
          let dir = T.dropWhileEnd (== '/') $
                      fromMaybe href (T.stripPrefix "./" href)
-         fmap (UTF8.toText . B.toStrict) <$>
-           lookupResource (T.unpack (dir <> "/content.xml"))
+         (_, mathml) <- lookupResource (T.unpack (dir <> "/content.xml"))
+         return $ Just (UTF8.toText $ B.toStrict mathml)
   case readMathML <$> mbMathML of
     Just (Right exps) -> return $ firstMatch $ displayMath $ writeTeX exps
     _                 -> return mempty
@@ -997,6 +1001,9 @@ read_reference_ref :: InlineMatcher
 read_reference_ref = matchingElement NsText "reference-ref"
                     $ matchContent [] read_plain_text >>= maybeInAnchorRef
 
+read_chapter :: InlineMatcher
+read_chapter = matchingElement NsText "chapter"
+               $ matchContent [] read_plain_text
 
 ----------------------
 -- Entry point
