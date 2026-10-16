@@ -730,8 +730,8 @@ inlineToMarkdown opts lnk@(Link attr@(ident,classes,kvs) txt (src, tit)) = do
             writeHtml5String opts{ writerTemplate = Nothing }
             (Pandoc nullMeta [Plain [lnk]])
       | otherwise -> return $
-         "[" <> linktext <> "](" <> literal src <> linktitle <> ")" <>
-         linkAttributes opts attr
+         "[" <> linktext <> "](" <> literal (linkDestination src) <> linktitle
+         <> ")" <> linkAttributes opts attr
 inlineToMarkdown opts img@(Image attr alternate (source, tit))
   | isEnabled Ext_raw_html opts &&
     not (isEnabled Ext_link_attributes opts || isEnabled Ext_attributes opts) &&
