@@ -87,7 +87,7 @@ elementToODT root = do
                (readStylesAt root)
   -- the media list is empty: all media arrives in office:binary-data
   either (\_ -> Left $ PandocParseError "Could not convert opendocument") Right
-    (runConverter read_body (readerState styles []) root)
+    (runConverter read_body (readerState opts styles []) root)
 
 -- the ODT parser uses old-style figures: an image with title beginning
 -- "fig:" in a paragraph by itself.  Convert these to new Figure elements.

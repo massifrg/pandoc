@@ -51,8 +51,7 @@ import Text.Pandoc.Writers.Markdown.Inline (inlineListToMarkdown,
                                             linkAttributes,
                                             attrsToMarkdown,
                                             attrsToMarkua,
-                                            getNoteMarker,
-                                            linkDestination)
+                                            getNoteMarker)
 import Text.Pandoc.Writers.Markdown.Table (pipeTable, pandocTable)
 import Text.Pandoc.Writers.Markdown.Types (MarkdownVariant(..),
                                            Note,
@@ -293,7 +292,8 @@ keyToMarkdown opts (label', (src, tit), attr) = do
                 then empty
                 else space <> "\"" <> literal tit <> "\""
   return $ nest 2 $ hang 2
-            ("[" <> literal label' <> "]:" <> space) (literal src <> tit')
+            ("[" <> literal label' <> "]:" <> space)
+            (literal (linkDestination src) <> tit')
             <+> linkAttributes opts attr
 
 -- | Return markdown representation of notes.
