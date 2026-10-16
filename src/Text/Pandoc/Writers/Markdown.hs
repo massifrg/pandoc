@@ -51,7 +51,8 @@ import Text.Pandoc.Writers.Markdown.Inline (inlineListToMarkdown,
                                             linkAttributes,
                                             attrsToMarkdown,
                                             attrsToMarkua,
-                                            getNoteMarker)
+                                            getNoteMarker,
+                                            linkDestination)
 import Text.Pandoc.Writers.Markdown.Table (pipeTable, pandocTable)
 import Text.Pandoc.Writers.Markdown.Types (MarkdownVariant(..),
                                            Note,
@@ -296,12 +297,19 @@ keyToMarkdown opts (label', (src, tit), attr) = do
             <+> linkAttributes opts attr
 
 -- | Return markdown representation of notes.
-notesToMarkdown :: PandocMonad m => WriterOptions -> [Note] -> MD m (Doc Text)
-notesToMarkdown opts notes = do
-  n <- gets stNoteNum
-  notes' <- zipWithM (noteToMarkdown opts False) [n..] notes
-  modify $ \st -> st { stNoteNum = stNoteNum st + length notes }
-  return $ vsep notes'
+notesToMarkdown :: PandocMonad m => WriterOptions -> MD m (Doc Text)
+notesToMarkdown opts = vsep <$> go
+  where
+    go = do
+      notes <- gets (reverse . stNotes)
+      if null notes
+        then return []
+        else do
+          n <- gets stNoteNum
+          modify $ \st -> st { stNotes = []
+                             , stNoteNum = n + length notes }
+          docs <- zipWithM (noteToMarkdown opts False) [n..] notes
+          (docs ++) <$> go
 
 -- | Return markdown representation of endnotes when Ext_endnotes is enabled.
 endnotesToMarkdown :: PandocMonad m => WriterOptions -> [Note] -> MD m (Doc Text)
@@ -359,8 +367,7 @@ beginsWithOrderedListMarker str =
 
 notesAndRefs :: PandocMonad m => WriterOptions -> MD m (Doc Text)
 notesAndRefs opts = do
-  notes' <- gets stNotes >>= notesToMarkdown opts . reverse
-  modify $ \s -> s { stNotes = [] }
+  notes' <- notesToMarkdown opts
   endnotes' <- gets stEndnotes >>= endnotesToMarkdown opts . reverse
   modify $ \s -> s { stEndnotes = [] }
   let allNotes = notes' <> (if isEmpty notes' then empty else blankline) <> endnotes'

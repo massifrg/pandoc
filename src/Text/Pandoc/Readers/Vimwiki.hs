@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE CPP #-}
 {- |
    Module      : Text.Pandoc.Readers.Vimwiki
    Copyright   : Copyright (C) 2017-2020 Yuchen Pei
@@ -66,8 +65,9 @@ import Text.Pandoc.Options (ReaderOptions)
 import Text.Pandoc.Parsing (ParserState, ParsecT, blanklines, emailAddress,
                             many1Till, orderedListMarker, readWithM,
                             registerHeader, spaceChar, stateMeta,
-                            stateOptions, uri, manyTillChar, manyChar, textStr,
-                            many1Char, countChar, many1TillChar,
+                            stateOptions, uri, manyTillChar, textStr,
+                            countChar, many1TillChar,
+                            takeWhileP, takeWhile1P,
                             alphaNum, anyChar, char, newline, noneOf, oneOf,
                             space, spaces, string, choice, eof, lookAhead,
                             many1, many, manyTill, notFollowedBy,
@@ -99,6 +99,35 @@ specialChars = "=*-#[]_~{}`$|:%^,"
 
 spaceChars :: [Char]
 spaceChars = " \t\n"
+
+-- | True for characters that terminate a run of plain text, i.e. the
+-- 'spaceChars' plus the 'specialChars'.  Written as a @case@ so that GHC
+-- compiles it to a jump table; this is applied to every single character
+-- of the input, so a linear scan over the list here is a significant
+-- cost.  Must be kept in sync with 'spaceChars' and 'specialChars'.
+isStrEnd :: Char -> Bool
+isStrEnd c = case c of
+  '\t' -> True
+  '\n' -> True
+  ' '  -> True
+  '#'  -> True
+  '$'  -> True
+  '%'  -> True
+  '*'  -> True
+  ','  -> True
+  '-'  -> True
+  ':'  -> True
+  '='  -> True
+  '['  -> True
+  ']'  -> True
+  '^'  -> True
+  '_'  -> True
+  '`'  -> True
+  '{'  -> True
+  '|'  -> True
+  '}'  -> True
+  '~'  -> True
+  _    -> False
 
 -- main parser
 
@@ -224,7 +253,7 @@ hasDefMarkerM = manyTillChar (noneOf "\n") (try defMarkerM)
 preformatted :: PandocMonad m => VwParser m Blocks
 preformatted = try $ do
   many spaceChar >> string "{{{"
-  attrText <- manyChar (noneOf "\n")
+  attrText <- takeWhileP (/= '\n')
   lookAhead newline
   contents <- manyTillChar anyChar (try (char '\n' >> many spaceChar >> string "}}}"
     >> many spaceChar >> newline))
@@ -234,8 +263,11 @@ preformatted = try $ do
 
 makeAttr :: Text -> Attr
 makeAttr s =
-  let xs = splitTextBy (`elem` (" \t" :: String)) s in
-    ("", syntax xs, mapMaybe nameValue xs)
+  let xs = splitTextBy (`elem` (" \t" :: String)) s
+      kvs = mapMaybe nameValue xs
+      cls = syntax xs ++ maybe [] T.words (lookup "class" kvs)
+      ident = fromMaybe "" $ lookup "id" kvs
+  in (ident, cls, [(k,v) | (k,v) <- kvs, k /= "class" && k /= "id"])
 
 syntax :: [Text] -> [Text]
 syntax (s:_) | not $ T.isInfixOf "=" s = [s]
@@ -480,7 +512,7 @@ inlineML :: PandocMonad m => VwParser m Inlines
 inlineML = choice $ whitespace endlineML:inlineList
 
 str :: PandocMonad m => VwParser m Inlines
-str = B.str <$> many1Char (noneOf $ spaceChars ++ specialChars)
+str = B.str <$> takeWhile1P (not . isStrEnd)
 
 whitespace :: PandocMonad m => VwParser m () -> VwParser m Inlines
 whitespace endline = B.space <$ (skipMany1 spaceChar <|>

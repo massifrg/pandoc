@@ -91,8 +91,14 @@ data Direction = LTR | RTL
 data WriterState =
     WriterState { stNotes          :: [Doc Text]
                 , stEndnotes       :: [Doc Text]
+                , stNoteCount      :: Int
                 , stTableStyles    :: [Doc Text]
+                , stTableStyleCount :: Int
                 , stParaStyles     :: [Doc Text]
+                , stParaStyleCount :: Int
+                , stParaStyleCache :: Map.Map ([(Text,Text)],[(Text,Text)]) Text
+                  -- ^ cache of automatic paragraph styles, keyed on
+                  -- (style attributes, paragraph properties)
                 , stListOverrides  :: Map.Map (ListNumberStyle,ListNumberDelim)
                                         (Text, Doc Text)
                 , stTextStyles     :: Map.Map (Set.Set TextStyle)
@@ -118,8 +124,12 @@ defaultWriterState :: WriterState
 defaultWriterState =
     WriterState { stNotes          = []
                 , stEndnotes       = []
+                , stNoteCount      = 0
                 , stTableStyles    = []
+                , stTableStyleCount = 0
                 , stParaStyles     = []
+                , stParaStyleCount = 0
+                , stParaStyleCache = Map.empty
                 , stListOverrides  = Map.empty
                 , stTextStyles     = Map.empty
                 , stTextStyleAttr  = Set.empty
@@ -140,7 +150,9 @@ when :: Bool -> Doc Text -> Doc Text
 when p a = if p then a else empty
 
 addTableStyle :: PandocMonad m => Doc Text -> OD m ()
-addTableStyle i = modify $ \s -> s { stTableStyles = i : stTableStyles s }
+addTableStyle i = modify $ \s ->
+  s { stTableStyles = i : stTableStyles s
+    , stTableStyleCount = stTableStyleCount s + 1 }
 
 addNote :: PandocMonad m => Doc Text -> OD m ()
 addNote i = modify $ \s -> s { stNotes = i : stNotes s }
@@ -834,11 +846,13 @@ inlineToOpenDocument o ils
           then i
           else fmap mkBookmarkedSpan i
       mkNote l = do
+        noteId <- gets stNoteCount
+        modify $ \st -> st{ stNoteCount = noteId + 1 }
         inEndnote <- gets stInEndnote
         nFootnote <- length <$> gets stNotes
         nEndnote  <- length <$> gets stEndnotes
         let n         = if inEndnote then nEndnote else nFootnote
-            idn       = nFootnote + nEndnote
+            idn       = noteId
             noteClass = if inEndnote then "endnote" else "footnote"
             pStyleName = if inEndnote then "Endnote" else "Footnote"
             footNote t = inTags False "text:note"

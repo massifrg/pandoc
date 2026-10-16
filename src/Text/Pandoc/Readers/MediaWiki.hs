@@ -94,8 +94,31 @@ instance HasLogMessages MWState where
 specialChars :: [Char]
 specialChars = "'[]<=&*{}|\":\\_"
 
-spaceChars :: [Char]
-spaceChars = " \n\t"
+-- | True for characters that terminate a run of plain text, i.e. the
+-- 'specialChars' plus space, newline and tab.  Written as a @case@ so that
+-- GHC compiles it to a jump table; this is applied to every single
+-- character of the input, so a linear scan over the list here is a
+-- significant cost.  Must be kept in sync with 'specialChars'.
+isStrEnd :: Char -> Bool
+isStrEnd c = case c of
+  '\t' -> True
+  '\n' -> True
+  ' '  -> True
+  '"'  -> True
+  '&'  -> True
+  '\'' -> True
+  '*'  -> True
+  ':'  -> True
+  '<'  -> True
+  '='  -> True
+  '['  -> True
+  '\\' -> True
+  ']'  -> True
+  '_'  -> True
+  '{'  -> True
+  '|'  -> True
+  '}'  -> True
+  _    -> False
 
 sym :: PandocMonad m => Text -> MWParser m ()
 sym s = () <$ try (string $ T.unpack s)
@@ -325,7 +348,7 @@ parseAttr = try $ do
   char '='
   skipMany spaceChar
   v <- (char '"' >> manyTillChar (satisfy (/='\n')) (char '"'))
-       <|> many1Char (satisfy $ \c -> not (isSpace c) && c /= '|')
+       <|> takeWhile1P (\c -> not (isSpace c) && c /= '|')
   return (k,v)
 
 tableStart :: PandocMonad m => MWParser m ()
@@ -407,7 +430,8 @@ template = try $ do
   string "{{"
   notFollowedBy (char '{')
   lookAhead $ letter <|> digit <|> char ':'
-  let chunk = template <|> variable <|> many1Char (noneOf "{}") <|> countChar 1 anyChar
+  let chunk = template <|> variable <|> takeWhile1P (\c -> c /= '{' && c /= '}')
+                <|> countChar 1 anyChar
   contents <- manyTill chunk (try $ string "}}")
   return $ "{{" <> T.concat contents <> "}}"
 
@@ -615,7 +639,7 @@ inline =  whitespace
       <|> special
 
 str :: PandocMonad m => MWParser m Inlines
-str = B.str <$> many1Char (noneOf $ specialChars ++ spaceChars)
+str = B.str <$> takeWhile1P (not . isStrEnd)
 
 math :: PandocMonad m => MWParser m Inlines
 math = (B.displayMath . trim <$> try (many1 (char ':') >> textInTags "math"))
@@ -712,9 +736,9 @@ image :: PandocMonad m => MWParser m Inlines
 image = try $ do
   sym "[["
   imageIdentifier
-  fname <- addUnderscores <$> many1Char (noneOf "|]")
+  fname <- addUnderscores <$> takeWhile1P (\c -> c /= '|' && c /= ']')
   _ <- many imageOption
-  dims <- try (char '|' *> sepBy (manyChar digit) (char 'x') <* string "px")
+  dims <- try (char '|' *> sepBy (takeWhileP isDigit) (char 'x') <* string "px")
           <|> return []
   _ <- many imageOption
   let kvs = case dims of
@@ -745,7 +769,7 @@ addUnderscores = T.intercalate "_" . splitTextBy sep . T.strip
 internalLink :: PandocMonad m => MWParser m Inlines
 internalLink = try $ do
   sym "[["
-  pagename <- T.unwords . T.words <$> manyChar (noneOf "|]")
+  pagename <- T.unwords . T.words <$> takeWhileP (\c -> c /= '|' && c /= ']')
   label <- option (B.text pagename) $ char '|' *>
              (  (mconcat <$> many1 (notFollowedBy (char ']') *> inline))
              -- the "pipe trick"
@@ -753,7 +777,7 @@ internalLink = try $ do
              <|> return (B.text $ T.drop 1 $ T.dropWhile (/=':') pagename) )
   sym "]]"
   -- see #8525:
-  linktrail <- B.text <$> manyChar (satisfy (\c -> isLetter c && not (isCJK c)))
+  linktrail <- B.text <$> takeWhileP (\c -> isLetter c && not (isCJK c))
   let link = B.linkWith (mempty, ["wikilink"], mempty) (addUnderscores pagename) (stringifyInlines label) (label <> linktrail)
   if "Category:" `T.isPrefixOf` pagename
      then do

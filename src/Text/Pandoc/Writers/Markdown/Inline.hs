@@ -16,6 +16,7 @@ module Text.Pandoc.Writers.Markdown.Inline (
   attrsToMarkdown,
   attrsToMarkua,
   getNoteMarker,
+  linkDestination
   ) where
 import Control.Monad (when, liftM2)
 import Control.Monad.Reader
@@ -343,6 +344,17 @@ attrWithoutEndnoteClass :: WriterOptions -> Attr -> [Inline] -> Attr
 attrWithoutEndnoteClass opts attr ils = case (attr, isEnabled Ext_endnotes opts, ils) of
   ((ident, ["endnote"], attributes), True, [Note _]) -> (ident, [], attributes)
   _ -> attr
+
+-- | Render a link destination, enclosing it in angle brackets if
+-- it contains whitespace, which is not allowed in a bare destination.
+linkDestination :: Text -> Text
+linkDestination src
+  | T.any isSpace src = "<" <> T.concatMap escapeChar src <> ">"
+  | otherwise = src
+  where
+    escapeChar c
+      | c `elem` ['<', '>', '\\'] = T.pack ['\\', c]
+      | otherwise = T.singleton c
 
 -- | Convert Pandoc inline element to markdown.
 inlineToMarkdown :: PandocMonad m => WriterOptions -> Inline -> MD m (Doc Text)
