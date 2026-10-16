@@ -10,7 +10,9 @@ packages:
 - 'pandoc-server'
 extra-deps:
 - hslua-2.5.0
-- hslua-module-doclayout-1.2.1.1
+# - hslua-module-doclayout-1.2.1.1
+- git: https://github.com/hslua/hslua-module-doclayout
+  commit: 646d4cbf3994af23c75922139fd04036c844cd0c
 - hslua-module-path-1.2.0
 - hslua-module-text-1.2.0
 - hslua-module-system-1.3.0
@@ -19,14 +21,17 @@ extra-deps:
 - hslua-objectorientation-2.5.0
 - hslua-packaging-2.4.1
 - hslua-typing-0.2.0
-- commonmark-0.3
-- commonmark-pandoc-0.3
-- commonmark-extensions-0.2.7.1
-- citeproc-0.13.0.1
 - skylighting-format-blaze-html-0.1.2.2
 - skylighting-0.15
 - skylighting-core-0.15
 - typst-symbols-0.3
+- git: https://github.com/jgm/citeproc
+  commit: a62b54417f558cb0886f428343eb0e08ffba2ecb
+- git: https://github.com/jgm/commonmark-hs
+  commit: c8482bb339350d7817b865baa925f607c2f9d349
+  subdirs: [commonmark, commonmark-extensions, commonmark-pandoc]
+- git: https://github.com/jgm/zip-archive
+  commit: 37d12aad8ebdcb2aefd14af6b992faddcf9e307a
 - git: https://github.com/jgm/asciidoc-hs
   commit: 8d090846ddb061871e2434f6f55462467cb5a052
 - git: https://github.com/jgm/doclayout
@@ -38,7 +43,8 @@ extra-deps:
 - git: https://github.com/jgm/djoths
   commit: 20549c6b7466cfbf8c3645ddfac68e223ca113f3
 - git: https://github.com/jgm/texmath
-  commit: a7451e20f371b451b94136c50fefa882a2852bf1
+  commit: 9fdba44fac47740e179884667b1e08331cba60dd
+
 # needed because not yet in nixpkgs:
 - pandoc-types-1.23.1.2
 # needed because not yet in nixpkgs:
