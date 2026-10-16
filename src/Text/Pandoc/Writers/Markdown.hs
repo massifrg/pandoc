@@ -454,28 +454,35 @@ blockToMarkdown' opts (Div attrs@(_,classes,_) bs)
          where (id',classes',kvs') = attrs
                attrs' = (id',classes',("markdown","1"):kvs')
 blockToMarkdown' opts (Plain inlines) = do
-  -- escape if para starts with ordered list marker
+  -- escape if a line starts with a list marker
   variant <- asks envVariant
   let escapeMarker = T.concatMap $ \x -> if T.any (== x) ".()"
                                          then T.pack ['\\', x]
                                          else T.singleton x
   let startsWithSpace (Space:_)     = True
       startsWithSpace (SoftBreak:_) = True
+      startsWithSpace (LineBreak:_) = True
       startsWithSpace _             = False
+  let escapeLineStart ils =
+        case ils of
+          (Str t:ys)
+            | null ys || startsWithSpace ys
+            , beginsWithOrderedListMarker t
+            -> RawInline (Format "markdown") (escapeMarker t):ys
+          (Str t:_)
+            | t == "+" || t == "-" ||
+              (t == "%" && isEnabled Ext_pandoc_title_block opts &&
+                           isEnabled Ext_all_symbols_escapable opts)
+            -> RawInline (Format "markdown") "\\" : ils
+          _ -> ils
+  let go ils = case ils of
+                 []             -> []
+                 (LineBreak:ys) -> LineBreak : go (escapeLineStart ys)
+                 (y:ys)          -> y : go ys
   let inlines' =
         if variant == PlainText
            then inlines
-           else case inlines of
-                  (Str t:ys)
-                    | null ys || startsWithSpace ys
-                    , beginsWithOrderedListMarker t
-                    -> RawInline (Format "markdown") (escapeMarker t):ys
-                  (Str t:_)
-                    | t == "+" || t == "-" ||
-                      (t == "%" && isEnabled Ext_pandoc_title_block opts &&
-                                   isEnabled Ext_all_symbols_escapable opts)
-                    -> RawInline (Format "markdown") "\\" : inlines
-                  _ -> inlines
+           else go (escapeLineStart inlines)
   contents <- inlineListToMarkdown opts inlines'
   return $ contents <> cr
 blockToMarkdown' opts (Para inlines) =
