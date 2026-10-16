@@ -23,7 +23,7 @@ import Control.Monad.Reader
     ( asks, MonadReader(local) )
 import Control.Monad.State.Strict
     ( MonadState(get), gets, modify )
-import Data.Char (isAlphaNum, isDigit)
+import Data.Char (isAlphaNum, isDigit, isSpace)
 import Data.List (find, intersperse)
 import Data.List.NonEmpty (nonEmpty)
 import qualified Data.Map as M
