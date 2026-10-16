@@ -755,7 +755,7 @@ getTextProps = do
                    Nothing -> mempty
                    Just l  -> EnvProps Nothing
                                [mknode "w:lang" [("w:val", l)] ()]
-  let squashed = squashProps (props <> langnode)
+  let squashed = squashProps rPrTagOrder (props <> langnode)
   return [mknode "w:rPr" [] squashed | (not . null) squashed]
 
 withTextProp :: PandocMonad m => Element -> WS m a -> WS m a
@@ -781,7 +781,7 @@ getParaProps displayMathPara = do
   let listPr = [mknode "w:numPr" []
                 [ mknode "w:ilvl" [("w:val",tshow listLevel)] ()
                 , mknode "w:numId" [("w:val",tshow numid')] () ] | listLevel >= 0 && not displayMathPara]
-  return $ case squashProps (EnvProps Nothing listPr <> props) of
+  return $ case squashProps pPrTagOrder (EnvProps Nothing listPr <> props) of
                 [] -> []
                 ps -> [mknode "w:pPr" [] ps]
 
