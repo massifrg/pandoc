@@ -61,10 +61,10 @@ readFODT :: (PandocMonad m, ToSources a)
          => ReaderOptions
          -> a
          -> m Pandoc
-readFODT _ inp = do
+readFODT opts inp = do
   root <- either (throwError . PandocXMLError "") pure
             (parseXMLElement (TL.fromStrict (sourcesToText (toSources inp))))
-  case elementToODT root of
+  case elementToODT opts root of
     Right (doc, mb) -> do
       P.setMediaBag mb
       return $ walk makeFigure doc
@@ -74,8 +74,8 @@ readFODT _ inp = do
 -- package distributes over @content.xml@ and @styles.xml@, and they are
 -- all children of the root.  The converter addresses everything relative
 -- to the element it is given, so it can simply be handed that root.
-elementToODT :: Element -> Either PandocError (Pandoc, MediaBag)
-elementToODT root = do
+elementToODT :: ReaderOptions -> Element -> Either PandocError (Pandoc, MediaBag)
+elementToODT opts root = do
   -- the local name only, consistently with the URI-based namespace
   -- matching downstream; office:document-content is correctly rejected
   unless (XML.qName (XML.elName root) == "document") $
