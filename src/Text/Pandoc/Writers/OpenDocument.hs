@@ -92,6 +92,8 @@ data WriterState =
     WriterState { stNotes          :: [Doc Text]
                 , stEndnotes       :: [Doc Text]
                 , stNoteCount      :: Int
+                , stFootnoteCount  :: Int
+                , stEndnoteCount   :: Int
                 , stTableStyles    :: [Doc Text]
                 , stTableStyleCount :: Int
                 , stParaStyles     :: [Doc Text]
@@ -124,6 +126,8 @@ defaultWriterState =
     WriterState { stNotes          = []
                 , stEndnotes       = []
                 , stNoteCount      = 0
+                , stFootnoteCount  = 0
+                , stEndnoteCount   = 0
                 , stTableStyles    = []
                 , stTableStyleCount = 0
                 , stParaStyles     = []
@@ -864,9 +868,16 @@ inlineToOpenDocument o ils
         noteId <- gets stNoteCount
         modify $ \st -> st{ stNoteCount = noteId + 1 }
         inEndnote <- gets stInEndnote
-        nFootnote <- length <$> gets stNotes
-        nEndnote  <- length <$> gets stEndnotes
-        let n         = if inEndnote then nEndnote else nFootnote
+        n <- if inEndnote
+                then do
+                  n' <- gets stEndnoteCount
+                  modify $ \st -> st{ stEndnoteCount = n' + 1 }
+                  return n'
+                else do
+                  n' <- gets stFootnoteCount
+                  modify $ \st -> st{ stFootnoteCount = n' + 1 }
+                  return n'
+        let
             idn       = noteId
             noteClass = if inEndnote then "endnote" else "footnote"
             pStyleName = if inEndnote then "Endnote" else "Footnote"
