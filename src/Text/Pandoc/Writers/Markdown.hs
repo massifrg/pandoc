@@ -454,7 +454,10 @@ blockToMarkdown' opts (Div attrs@(_,classes,_) bs)
          where (id',classes',kvs') = attrs
                attrs' = (id',classes',("markdown","1"):kvs')
 blockToMarkdown' opts (Plain inlines) = do
-  -- escape if a line starts with a list marker
+  -- escape if a line starts with a list marker.  This must be done at the
+  -- start of every line, not just the start of the block: a sublist can
+  -- interrupt a list item's text after a LineBreak, so an unescaped marker
+  -- there would be read back as a nested list, destroying the LineBreak.
   variant <- asks envVariant
   let escapeMarker = T.concatMap $ \x -> if T.any (== x) ".()"
                                          then T.pack ['\\', x]
@@ -475,10 +478,11 @@ blockToMarkdown' opts (Plain inlines) = do
                            isEnabled Ext_all_symbols_escapable opts)
             -> RawInline (Format "markdown") "\\" : ils
           _ -> ils
+  -- apply escapeLineStart to the head of the list, then after each LineBreak
   let go ils = case ils of
                  []             -> []
                  (LineBreak:ys) -> LineBreak : go (escapeLineStart ys)
-                 (y:ys)          -> y : go ys
+                 (y:ys)         -> y : go ys
   let inlines' =
         if variant == PlainText
            then inlines

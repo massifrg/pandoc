@@ -14,11 +14,9 @@
 Conversion of 'Pandoc' documents to OpenDocument XML.
 -}
 module Text.Pandoc.Writers.OpenDocument ( writeOpenDocument ) where
-import Control.Arrow ((***), (>>>))
-import Control.Monad (unless, liftM)
+import Control.Monad (unless, liftM, when)
 import Control.Monad.State.Strict ( StateT(..), modify, gets, lift )
 import Data.Char (chr, isDigit)
-import Data.Foldable (find)
 import Data.List (sortOn, sortBy)
 import qualified Data.List as L
 import qualified Data.Map as Map
@@ -111,12 +109,11 @@ data WriterState =
                 , stIndentPara     :: Int
                 , stInDefinition   :: Bool
                 , stInEndnote      :: Bool
-                , stTight          :: Bool
                 , stFirstPara      :: Bool
                 , stImageId        :: Int
                 , stTableCaptionId :: Int
                 , stImageCaptionId :: Int
-                , stIdentTypes     :: [(Text,ReferenceType)]
+                , stIdentTypes     :: Map.Map Text ReferenceType
                 , stDirection      :: Maybe Direction
                   -- ^ active writing mode
                 }
@@ -139,17 +136,13 @@ defaultWriterState =
                 , stIndentPara     = 0
                 , stInDefinition   = False
                 , stInEndnote      = False
-                , stTight          = False
                 , stFirstPara      = False
                 , stImageId        = 1
                 , stTableCaptionId = 1
                 , stImageCaptionId = 1
-                , stIdentTypes     = []
+                , stIdentTypes     = Map.empty
                 , stDirection      = Nothing
                 }
-
-when :: Bool -> Doc Text -> Doc Text
-when p a = if p then a else empty
 
 addTableStyle :: PandocMonad m => Doc Text -> OD m ()
 addTableStyle i = modify $ \s ->
@@ -300,16 +293,23 @@ inQuotes DoubleQuote s = char '\8220' <> s <> char '\8221'
 handleSpaces :: Text -> Doc Text
 handleSpaces s = case T.uncons s of
   Just (' ', _) -> genTag s
-  Just ('\t',x) -> selfClosingTag "text:tab" [] <> rm x
+  Just ('\t',x) -> tabTag <> rm x
   _             -> rm s
   where
-    genTag = T.span (==' ') >>> tag . T.length *** rm >>> uncurry (<>)
-    tag n  = when (n /= 0) $ selfClosingTag "text:s" [("text:c", tshow n)]
-    rm t   = case T.uncons t of
-      Just ( ' ',xs) -> char ' ' <> genTag xs
-      Just ('\t',xs) -> selfClosingTag "text:tab" [] <> genTag xs
-      Just (   x,xs) -> char x <> rm xs
-      Nothing        -> empty
+    tabTag = selfClosingTag "text:tab" []
+    -- collapse a run of spaces into a single <text:s>
+    genTag t = let (spaces, t') = T.span (== ' ') t
+               in  tag (T.length spaces) <> rm t'
+    tag 0  = empty
+    tag n  = selfClosingTag "text:s" [("text:c", tshow n)]
+    -- emit text verbatim up to the next space or tab; a lone space is
+    -- kept literal and any further ones become a <text:s>
+    rm t = let (chunk, t') = T.break (\c -> c == ' ' || c == '\t') t
+               pre = if T.null chunk then empty else literal chunk
+           in  case T.uncons t' of
+                 Just (' ', xs) -> pre <> char ' ' <> genTag xs
+                 Just (_  , xs) -> pre <> tabTag <> genTag xs
+                 Nothing        -> pre
 
 -- | Convert Pandoc document to string in OpenDocument format.
 writeOpenDocument :: PandocMonad m => WriterOptions -> Pandoc -> m Text
@@ -336,11 +336,19 @@ writeOpenDocument opts (Pandoc meta blocks) = do
                            _ -> Nothing
   ((body, abstract, metadata),s) <- flip runStateT
         defaultWriterState{ stDirection = mbDir } $ do
-           let collectBlockIdent (Header _ (ident,_,_) _)      = [(ident,HeaderRef)]
-               collectBlockIdent (Figure (ident,_,_) _ _ )     = [(ident,FigureRef)]
-               collectBlockIdent (Table (ident,_,_) _ _ _ _ _) = [(ident,TableRef)]
-               collectBlockIdent _                             = []
-           modify $ \s -> s{ stIdentTypes = query collectBlockIdent blocks }
+           let collectBlockIdent (Header _ attr _)      = identRef HeaderRef attr
+               collectBlockIdent (Figure attr _ _ )     = identRef FigureRef attr
+               collectBlockIdent (Table attr _ _ _ _ _) = identRef TableRef attr
+               collectBlockIdent _                      = []
+               identRef ty (ident,_,_)
+                 | T.null ident = []
+                 | otherwise    = [(ident, ty)]
+           -- only needed to resolve cross references
+           when (isEnabled Ext_xrefs_name opts ||
+                 isEnabled Ext_xrefs_number opts) $
+             modify $ \s -> s{ stIdentTypes =
+                                 Map.fromListWith (\_ old -> old)
+                                   (query collectBlockIdent blocks) }
            m <- metaToContext opts
                   (inlinesToOpenDocument opts . blocksToInlines)
                   (fmap chomp . inlinesToOpenDocument opts)
@@ -553,7 +561,7 @@ blockToOpenDocument o = \case
     HorizontalRule   -> setFirstPara >> return (selfClosingTag "text:p"
                          [ ("text:style-name", "Horizontal_20_Line") ])
     b@(RawBlock f s) -> if f == Format "opendocument"
-                        then return $ text $ T.unpack s
+                        then return $ literal s
                         else empty <$ report (BlockNotRendered b)
     Figure a capt b  -> figure o a capt b
     where
@@ -654,7 +662,7 @@ numberedFigureCaption ident caption = do
 
 numberedCaption :: Text -> Text -> Text -> Int -> Text -> Doc Text -> Doc Text
 numberedCaption style term name num ident caption =
-    let t = text $ T.unpack term
+    let t = literal term
         r = num - 1
         ident' = case ident of
           "" -> "ref" <> name <> tshow r
@@ -816,7 +824,7 @@ inlineToOpenDocument o ils
                          inlinesToOpenDocument o
     Cite      _ l -> inlinesToOpenDocument o l
     RawInline f s -> if f == Format "opendocument"
-                       then return $ text $ T.unpack s
+                       then return $ literal s
                        else do
                          report $ InlineNotRendered ils
                          return empty
@@ -900,12 +908,10 @@ toHlTok (toktype,tok) =
 preformatted :: Text -> Doc Text
 preformatted s = handleSpaces $ escapeStringForXML s
 
-mkLink :: WriterOptions -> [(Text,ReferenceType)] -> Text -> Text -> Doc Text -> Doc Text
+mkLink :: WriterOptions -> Map.Map Text ReferenceType -> Text -> Text
+       -> Doc Text -> Doc Text
 mkLink o identTypes s t d =
-  let maybeIdentAndType = case T.uncons s of
-                            Just ('#', ident) -> find ((ident ==) . fst) identTypes
-                            _                 -> Nothing
-      d' = inSpanTags "Definition" d
+  let d' = inSpanTags "Definition" d
       ref refType format ident       = inTags False refType
                                        [ ("text:reference-format", format ),
                                          ("text:ref-name", ident) ]
@@ -930,11 +936,14 @@ mkLink o identTypes s t d =
                                           , ("xlink:href" , s       )
                                           , ("office:name", t       )
                                           ] d'
-      linkOrReference = case maybeIdentAndType of
-                          Just (ident, HeaderRef) -> bookmarkRef' ident
-                          Just (ident, TableRef)  -> sequenceRef' ident
-                          Just (ident, FigureRef) -> sequenceRef' ident
-                          _                       -> link
+      linkOrReference = case T.uncons s of
+                          Just ('#', ident) ->
+                            case Map.lookup ident identTypes of
+                              Just HeaderRef -> bookmarkRef' ident
+                              Just TableRef  -> sequenceRef' ident
+                              Just FigureRef -> sequenceRef' ident
+                              Nothing        -> link
+                          _ -> link
       in if isEnabled Ext_xrefs_name o || isEnabled Ext_xrefs_number o
             then linkOrReference
             else link
@@ -993,19 +1002,15 @@ paraStyle :: PandocMonad m => [(Text,Text)] -> OD m Text
 paraStyle attrs = do
   i  <- (*) (0.5 :: Double) . fromIntegral <$> gets stIndentPara
   b  <- gets stInDefinition
-  t  <- gets stTight
   dirAttrs <- getDirAttrs
   let indentVal = flip (<>) "in" . tshow $ if b then max 0.5 i else i
-      tight     = if t then [ ("fo:margin-top"          , "0in"    )
-                            , ("fo:margin-bottom"       , "0in"    )]
-                       else []
       indent    = if i /= 0 || b
                       then [ ("fo:margin-left"         , indentVal)
                            , ("fo:margin-right"        , "0in"    )
                            , ("fo:text-indent"         , "0in"    )
                            , ("style:auto-text-indent" , "false"  )]
                       else []
-      attributes = indent <> tight <> dirAttrs
+      attributes = indent <> dirAttrs
   case (attributes, attrs) of
     ([], [("style:parent-style-name", parent)]) -> return parent
     _ -> mkParaStyle attrs attributes
