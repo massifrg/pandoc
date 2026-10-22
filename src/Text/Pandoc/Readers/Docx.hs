@@ -51,9 +51,7 @@ implemented, [-] means partially implemented):
   - [X] Link (links to an arbitrary bookmark create a span with the target as
         id and "anchor" class)
   - [X] Image
-  - [X] Note (Footnotes and Endnotes are silently combined,
-              unless Ext_endnotes is enabled: in that case a Note is embedded
-              in a Span with class "endnote")
+  - [X] Note (Footnotes and Endnotes are silently combined, unless Ext_endnotes is enabled: in that case a Note is embedded in a Span with class "endnote")
 -}
 
 module Text.Pandoc.Readers.Docx
@@ -346,10 +344,10 @@ runToInlines (Run rs runElems)
       let ils = smushInlines (map runElemToInlines runElems)
       transform <- runStyleToTransform rPr
       return $ transform ils
-runToInlines (Footnote bps) = note . smushBlocks <$> mapM bodyPartToBlocks bps
+runToInlines (Footnote bps) = note <$> notePartsToBlocks bps
 runToInlines (Endnote bps) = do
   isEndnotesExtEnabled <- asks (isEnabled Ext_endnotes . docxOptions)
-  noteInlines <- note . smushBlocks <$> mapM bodyPartToBlocks bps
+  noteInlines <- note <$> notePartsToBlocks bps
   return $ if isEndnotesExtEnabled
     then spanWith ("", ["endnote"], []) noteInlines
     else noteInlines
@@ -365,6 +363,19 @@ extentToAttr (Just (w, h)) =
   where
     showDim d = tshow (d / 914400) <> "in"
 extentToAttr _ = nullAttr
+
+-- A note is read in the middle of the paragraph that references it.
+-- Text held back from a paragraph whose mark is a tracked change
+-- (docxPrevPara) must therefore neither flow into the note from the
+-- body, nor out of the note into the referencing paragraph.
+notePartsToBlocks :: PandocMonad m => [BodyPart] -> DocxContext m Blocks
+notePartsToBlocks bps = do
+  outerPrevPara <- gets docxPrevPara
+  modify $ \s -> s { docxPrevPara = mempty }
+  blks <- smushBlocks <$> mapM bodyPartToBlocks bps
+  leftover <- gets docxPrevPara
+  modify $ \s -> s { docxPrevPara = outerPrevPara }
+  return $ if null leftover then blks else blks <> para leftover
 
 blocksToInlinesWarn :: PandocMonad m => T.Text -> Blocks -> DocxContext m Inlines
 blocksToInlinesWarn cmtId blks = do
@@ -855,11 +866,10 @@ bodyPartToBlocks (Tbl mbsty cap grid look parts) = do
       -- Horizontal column alignment is taken from the first row's cells.
       numcols = length widths
       getAlignment (Docx.Cell al colspan _ _) =
-        take numcols $ replicate (fromIntegral colspan) (convertAlign al) ++
-                       repeat Pandoc.AlignDefault
+        replicate (fromIntegral colspan) (convertAlign al)
       getAlignments (Docx.Row _ cs) = concatMap getAlignment cs
       alignments = take numcols $
-                   case hdr ++ rows of
+                   case rows ++ hdr of
                      [] -> repeat Pandoc.AlignDefault
                      r : _ -> getAlignments r
 
