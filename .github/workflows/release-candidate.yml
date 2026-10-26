@@ -45,6 +45,8 @@ jobs:
       shell: cmd
       run: |
           for /f %%a in ('powershell -Command "Get-Date -format yyyy-MM-dd"') do set THEDATE=%%a
+          cabal freeze ${{ matrix.versions.cabal_opts }}
+          type cabal.project.freeze
           cabal build ${{ matrix.versions.cabal_opts }} pandoc-cli
           for /f "delims=" %%a in ('cabal list-bin ${{ matrix.versions.cabal_opts }} pandoc-cli') do set BINPATH=%%a
           echo BINPATH is %BINPATH%
@@ -121,10 +123,10 @@ jobs:
     - name: Create release
       run: |
         sh macos/make_macos_release.sh
-        tar cvzf macos-x86_64.tar.gz macos-x86_64
+        zip -r macos-x86_64.zip macos-x86_64
 
     - uses: actions/upload-artifact@v7
       with:
-        name: macos-x86_64.tar.gz
-        path: macos-x86_64.tar.gz
+        name: macos-x86_64.zip
+        path: macos-x86_64.zip
 
